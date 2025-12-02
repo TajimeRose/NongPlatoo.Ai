@@ -1,21 +1,36 @@
-﻿"""Flask app for Samut Songkhram tourism. GPT (OPENAI_MODEL, default: gpt-4o)."""
+﻿"""Flask app for Samut Songkhram tourism."""
 
 import json
 import os
-
-from flask import Flask, request, jsonify, Response, send_from_directory, abort
-from flask_cors import CORS
-from chat import chat_with_bot, get_chat_response
-from db import init_db
-
 import datetime
 from dotenv import load_dotenv
+from flask import Flask, request, jsonify, Response, send_from_directory, abort
+from flask_cors import CORS
 
-
+# 1. โหลด Environment ก่อนเพื่อน
 load_dotenv()
 
+# 2. สร้าง app ทันที (เพื่อให้คนอื่น import ไปใช้ได้ โดยไม่ error)
 app = Flask(__name__)
 CORS(app)
+
+# ---------------------------------------------------------
+# 3. Import Modules ของเรา "หลังจาก" สร้าง app เสร็จแล้ว
+# (เพื่อป้องกัน Circular Import และต้องเช็ค path ให้ถูก)
+# ---------------------------------------------------------
+try:
+    # ลอง import แบบระบุ path เต็ม (กรณีอยู่ใน folder backend)
+    from backend.chat import chat_with_bot, get_chat_response
+    from backend.db import init_db
+except ImportError:
+    # Fallback: กรณีรัน Local แล้วไฟล์กองรวมกันอยู่ที่ root
+    try:
+        from chat import chat_with_bot, get_chat_response
+        from db import init_db
+    except ImportError as e:
+        print(f"⚠️ Warning: Could not import chat/db modules: {e}")
+# ---------------------------------------------------------
+
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -45,6 +60,7 @@ def api_query():
         user_message = data['message']
         user_id = data.get('user_id', 'default')
         
+        # เรียกใช้ฟังก์ชันจาก module ที่ import มา
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -160,7 +176,6 @@ def health_check():
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
-    # Serve the compiled SPA for any non-API/static paths so client-side routing works.
     if path == 'favicon.ico':
         return send_from_directory('static', 'favicon.ico')
     if path.startswith(('api/', 'assets/', 'static/', 'firebase_config.js')):
@@ -168,17 +183,11 @@ def spa_fallback(path: str):
     return send_from_directory('static', 'index.html')
 
 if __name__ == '__main__':
-    print("Samut Songkhram Travel Assistant (GPT model: OPENAI_MODEL or gpt-4o)")
-    print("http://localhost:5000")
-    
-    # DISABLED FOR COOLIFY DEPLOYMENT - AI will use OpenAI API and JSON files only
-    # Database initialization commented out to avoid connection errors
+    print("Samut Songkhram Travel Assistant")
     # try:
     #     init_db()
-    #     print("[OK] Database initialized")
     # except Exception as e:
     #     print(f"[WARN] Database initialization failed: {e}")
     
-    print("[INFO] Running without database - using OpenAI API and JSON files")
+    print("[INFO] Running app...")
     app.run(debug=True, host='0.0.0.0', port=5000)
-
