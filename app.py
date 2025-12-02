@@ -2,35 +2,33 @@
 
 import json
 import os
+import sys
 import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
 
-# 1. โหลด Environment ก่อนเพื่อน
+# ---------------------------------------------------------
+# 🔧 FIX 1: เพิ่มโฟลเดอร์ 'backend' เข้าไปใน Path
+# เพื่อให้ไฟล์ chat.py สามารถเรียกเพื่อนๆ (configs, db) ได้
+# ---------------------------------------------------------
+sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+
+# 1. โหลด Environment
 load_dotenv()
 
-# 2. สร้าง app ทันที (เพื่อให้คนอื่น import ไปใช้ได้ โดยไม่ error)
+# 2. สร้าง app
 app = Flask(__name__)
 CORS(app)
 
 # ---------------------------------------------------------
-# 3. Import Modules ของเรา "หลังจาก" สร้าง app เสร็จแล้ว
-# (เพื่อป้องกัน Circular Import และต้องเช็ค path ให้ถูก)
+# 🔧 FIX 2: Import Modules (ตอนนี้ import 'chat' ตรงๆ ได้แล้ว)
 # ---------------------------------------------------------
 try:
-    # ลอง import แบบระบุ path เต็ม (กรณีอยู่ใน folder backend)
-    from backend.chat import chat_with_bot, get_chat_response
-    from backend.db import init_db
-except ImportError:
-    # Fallback: กรณีรัน Local แล้วไฟล์กองรวมกันอยู่ที่ root
-    try:
-        from chat import chat_with_bot, get_chat_response
-        from db import init_db
-    except ImportError as e:
-        print(f"⚠️ Warning: Could not import chat/db modules: {e}")
-# ---------------------------------------------------------
-
+    from chat import chat_with_bot, get_chat_response
+    from db import init_db
+except ImportError as e:
+    print(f"⚠️ Warning: Could not import chat/db modules: {e}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -42,13 +40,19 @@ FIREBASE_ENV_MAP = {
     'databaseURL': 'FIREBASE_DATABASE_URL',
 }
 
+# ---------------------------------------------------------
+# 🔧 FIX 3: ชี้เป้า Static Files ไปที่ 'backend/static'
+# เพราะ Dockerfile copy ไฟล์ Build ไปไว้ที่นั่น
+# ---------------------------------------------------------
+STATIC_FOLDER = 'backend/static'
+
 @app.route('/')
 def index():
-    return send_from_directory('static', 'index.html')
+    return send_from_directory(STATIC_FOLDER, 'index.html')
     
 @app.route('/assets/<path:path>')
 def send_assets(path):
-    return send_from_directory('static/assets', path)
+    return send_from_directory(f'{STATIC_FOLDER}/assets', path)
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
@@ -60,7 +64,7 @@ def api_query():
         user_message = data['message']
         user_id = data.get('user_id', 'default')
         
-        # เรียกใช้ฟังก์ชันจาก module ที่ import มา
+        # เรียกใช้ฟังก์ชันจาก module
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -177,10 +181,10 @@ def health_check():
 @app.route('/<path:path>')
 def spa_fallback(path: str):
     if path == 'favicon.ico':
-        return send_from_directory('static', 'favicon.ico')
+        return send_from_directory(STATIC_FOLDER, 'favicon.ico')
     if path.startswith(('api/', 'assets/', 'static/', 'firebase_config.js')):
         abort(404)
-    return send_from_directory('static', 'index.html')
+    return send_from_directory(STATIC_FOLDER, 'index.html')
 
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
