@@ -1,0 +1,12 @@
+# .coolify
+# Coolify configuration file
+# This tells Coolify to ignore docker-compose.yml and use Dockerfile only
+
+# Deployment type
+type=dockerfile
+
+# Health check endpoint
+healthCheckPath=/health
+
+# Port (Coolify will inject this as environment variable)
+port=3000
