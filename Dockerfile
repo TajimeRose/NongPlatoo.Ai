@@ -34,6 +34,10 @@ COPY app.py ./
 # Copy built frontend from stage 1 to backend static directory
 COPY --from=frontend-builder /app/frontend/dist ./backend/static
 
+# Copy entrypoint script
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
 # Set environment variables
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
@@ -41,8 +45,5 @@ ENV PYTHONUNBUFFERED=1
 # Expose port
 EXPOSE 8000
 
-# Run with gunicorn (production server)
-# -w 4: 4 worker processes
-# -t 120: 120 seconds timeout
-# --access-logfile -: log to stdout
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "-w", "4", "-t", "120", "--access-logfile", "-", "app:app"]
+# Use entrypoint script for better environment handling
+ENTRYPOINT ["./entrypoint.sh"]
