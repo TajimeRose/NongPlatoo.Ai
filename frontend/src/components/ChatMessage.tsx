@@ -1,0 +1,172 @@
+import { cn } from "@/lib/utils";
+import { Bot, User, MapPin, Clock, Phone } from "lucide-react";
+
+type StructuredPlace = {
+  id?: string | number;
+  place_name?: string;
+  name?: string;
+  description?: string;
+  short_description?: string;
+  address?: string;
+  location?: string | { district?: string; province?: string };
+  category?: string;
+  type?: string | string[];
+  images?: string[];
+  opening_hours?: string;
+  contact?: string;
+};
+
+interface ChatMessageProps {
+  message: string;
+  isUser: boolean;
+  timestamp?: string;
+  structuredData?: StructuredPlace[];
+  meta?: {
+    source?: string;
+    intent?: string;
+  };
+}
+
+const formatLocation = (location?: StructuredPlace["location"]): string => {
+  if (!location) return "";
+  if (typeof location === "string") return location;
+  const district = location.district || "";
+  const province = location.province || "";
+  return [district, province].filter(Boolean).join(", ");
+};
+
+const normalizeType = (type?: string | string[]): string | undefined => {
+  if (!type) return undefined;
+  return Array.isArray(type) ? type.join(", ") : type;
+};
+
+const StructuredPlaces = ({ places }: { places: StructuredPlace[] }) => {
+  if (!places.length) return null;
+  return (
+    <div className="mt-3 space-y-3">
+      {places.map((place, index) => {
+        const name = place.place_name || place.name || "สถานที่";
+        const desc =
+          place.short_description ||
+          place.description ||
+          "ข้อมูลสถานที่เพิ่มเติม";
+        const typeLabel = place.category || normalizeType(place.type);
+        const locationText = formatLocation(place.location) || place.address;
+        const image = place.images?.[0];
+
+        return (
+          <div
+            key={place.id || `${name}-${index}`}
+            className="rounded-xl border border-border bg-muted/40 p-3"
+          >
+            <div className="flex items-start gap-3">
+              {image && (
+                <img
+                  src={image}
+                  alt={name}
+                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                  loading="lazy"
+                />
+              )}
+              <div className="space-y-1">
+                <p className="font-semibold text-foreground leading-tight">
+                  {name}
+                </p>
+                {typeLabel && (
+                  <p className="text-xs text-muted-foreground">{typeLabel}</p>
+                )}
+                <p className="text-sm text-foreground/80 leading-relaxed line-clamp-3">
+                  {desc}
+                </p>
+                {locationText && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{locationText}</span>
+                  </div>
+                )}
+                {place.opening_hours && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>{place.opening_hours}</span>
+                  </div>
+                )}
+                {place.contact && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>{place.contact}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const ChatMessage = ({
+  message,
+  isUser,
+  timestamp,
+  structuredData = [],
+  meta,
+}: ChatMessageProps) => {
+  return (
+    <div
+      className={cn(
+        "flex gap-3 animate-slide-up",
+        isUser ? "flex-row-reverse" : "flex-row"
+      )}
+    >
+      {/* Avatar */}
+      <div
+        className={cn(
+          "flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center",
+          isUser
+            ? "bg-primary text-primary-foreground"
+            : "bg-secondary text-secondary-foreground"
+        )}
+      >
+        {isUser ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+      </div>
+
+      {/* Message Bubble */}
+      <div
+        className={cn(
+          "max-w-[80%] rounded-2xl px-4 py-3",
+          isUser
+            ? "bg-primary text-primary-foreground rounded-br-sm"
+            : "bg-card shadow-soft border border-border rounded-bl-sm"
+        )}
+      >
+        <p
+          className={cn(
+            "text-sm leading-relaxed whitespace-pre-wrap",
+            isUser ? "text-primary-foreground" : "text-foreground"
+          )}
+        >
+          {message}
+        </p>
+        {structuredData.length > 0 && <StructuredPlaces places={structuredData} />}
+        {(timestamp || meta?.source) && (
+          <p
+            className={cn(
+              "text-xs mt-1.5 flex items-center gap-2",
+              isUser ? "text-primary-foreground/60" : "text-muted-foreground"
+            )}
+          >
+            {timestamp}
+            {meta?.source && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] border border-border">
+                {meta.source}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ChatMessage;
