@@ -170,10 +170,15 @@ def spa_fallback(path: str):
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant (GPT model: OPENAI_MODEL or gpt-4o)")
     print("http://localhost:5000")
-    try:
-        init_db()
-        print("[OK] Database initialized")
-    except Exception as e:
-        print(f"[WARN] Database initialization failed: {e}")
+    
+    # DISABLED FOR COOLIFY DEPLOYMENT - AI will use OpenAI API and JSON files only
+    # Database initialization commented out to avoid connection errors
+    # try:
+    #     init_db()
+    #     print("[OK] Database initialized")
+    # except Exception as e:
+    #     print(f"[WARN] Database initialization failed: {e}")
+    
+    print("[INFO] Running without database - using OpenAI API and JSON files")
     app.run(debug=True, host='0.0.0.0', port=5000)
 

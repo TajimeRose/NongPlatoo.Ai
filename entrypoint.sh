@@ -17,8 +17,9 @@ export PORT=${PORT:-8000}
 echo "🔌 Using PORT: $PORT"
 
 # Initialize database if needed
-echo "🗄️ Initializing database..."
-python -c "from backend.db import init_db; init_db()" || echo "⚠️ Database initialization skipped or failed (may already be initialized)"
+# DISABLED FOR COOLIFY DEPLOYMENT - AI will use OpenAI API and JSON files only
+echo "⚠️ Database initialization disabled (using OpenAI API and JSON files)"
+# python -c "from backend.db import init_db; init_db()" || echo "⚠️ Database initialization skipped or failed (may already be initialized)"
 
 # Start gunicorn
 echo "✅ Starting Gunicorn on 0.0.0.0:$PORT"
