@@ -1,0 +1,68 @@
+# Ignore version control
+.git
+.gitignore
+
+# Ignore Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.venv
+venv
+env
+
+# Ignore Node modules (will be installed in Docker)
+node_modules
+frontend/node_modules
+
+# Ignore build outputs (will be built in Docker)
+frontend/dist
+frontend/build
+backend/static
+
+# Ignore environment files (use docker-compose env)
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Ignore IDE files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Ignore logs
+*.log
+logs
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore test and development files
+*.test.js
+*.spec.js
+coverage
+.pytest_cache
+
+# Ignore documentation (not needed in container)
+*.md
+docs
+
+# Ignore CI/CD files
+.github
+.gitlab-ci.yml
+
+# Ignore database files
+*.db
+*.sqlite
+*.sqlite3
+postgres_data
