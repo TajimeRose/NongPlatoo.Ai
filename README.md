@@ -331,6 +331,8 @@ pip install -r requirements.txt
 ```bash
 npm run dev          # เริ่ม development server
 npm run build        # Build สำหรับ production
+npm run deploy-flask # เมื่อ npm run build เสร็จรันต่อเมื่ออัพเข้า Flask
+
 npm run build:dev    # Build สำหรับ development
 npm run lint         # รัน ESLint
 npm run preview      # ดูตัวอย่าง production build
