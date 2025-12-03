@@ -1,0 +1,7 @@
+{
+  "chatbot": {
+    "enable_local_search": true,
+    "max_results": 5,
+    "language": "th"
+  }
+}
