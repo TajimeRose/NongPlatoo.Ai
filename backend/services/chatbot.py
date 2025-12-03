@@ -10,10 +10,10 @@ import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Set, Tuple
 import re
 
-from world_journey_ai.services.province_guides import PROVINCE_GUIDES, PROVINCE_SYNONYMS
-from world_journey_ai.services.guides import build_bangkok_guides_html
-from world_journey_ai.services.messages import MessageStore
-from world_journey_ai.services.enhanced_knowledge import enhanced_knowledge, PlaceKnowledge
+from services.province_guides import PROVINCE_GUIDES, PROVINCE_SYNONYMS
+from services.guides import build_bangkok_guides_html
+from services.messages import MessageStore
+from services.enhanced_knowledge import enhanced_knowledge, PlaceKnowledge
 
 from config_loader import get_config_value, get_prompts_config
 

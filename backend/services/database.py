@@ -1,6 +1,6 @@
 """Database service layer for PostgreSQL-backed resources.
 
-This module wraps the SQLAlchemy helpers defined in ``world_journey_ai.db``
+This module wraps the SQLAlchemy helpers defined in ``db``
 so the rest of the codebase (notably ``chatbot_postgres``) can talk to the
 PostgreSQL database managed through pgAdmin 4 or any other PostgreSQL client.
 

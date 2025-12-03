@@ -1,4 +1,4 @@
-from world_journey_ai.db import get_engine
+from backend.db import get_engine
 from sqlalchemy import text
 
 engine = get_engine()
