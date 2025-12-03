@@ -1,0 +1,6 @@
+{
+  "context": {
+    "no_data": "There is no verified local dataset available for this query. Respond with general knowledge but state the limitation.",
+    "error": "Local travel data is unavailable due to {reason}. Provide a helpful response using general knowledge and mention the limitation."
+  }
+}
