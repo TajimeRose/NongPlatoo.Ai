@@ -62,7 +62,7 @@ const Chat = () => {
       id: "welcome",
       content: place
         ? `สวัสดีค่ะ! I see you're interested in ${place.nameTh} (${place.name}). I'd be happy to help you learn more about this place or plan your visit. What would you like to know?`
-        : "สวัสดีค่ะ! I'm Platu, your AI travel assistant for Samut Songkhram. I can help you discover floating markets, plan day trips, find the best local food, and explore this beautiful river province. How can I help you today?",
+        : "สวัสดีค่ะ! ฉันคือน้องปลาทู ผู้ช่วยประชาสัมพันธ์ การท่องเที่ยวจังหวัดสมุทรสงคราม ฉันช่วยคุณหาสถานที่ท่องเที่ยว, คาเฟ่, ร่านอาหาร, โรงแรม ให้คุณเอง",
       isUser: false,
       timestamp: new Date().toLocaleTimeString("th-TH", {
         hour: "2-digit",
@@ -184,35 +184,17 @@ const Chat = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
 
-      {/* Chat Header */}
-      <header className="pt-16 border-b border-border bg-card/95 backdrop-blur-md sticky top-16 z-30">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-river rounded-xl flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <h1 className="font-display font-semibold text-foreground">
-                Platu — AI Travel Assistant
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                ผู้ช่วยนำเที่ยวสมุทรสงคราม
-              </p>
-            </div>
-          </div>
 
+
+      {/* Messages */}
+      <main className="flex-1 overflow-y-auto pt-16">
+        <div className="container mx-auto px-4 py-6 max-w-3xl">
           {error && (
-            <div className="mt-3 inline-flex items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            <div className="mb-4 inline-flex items-center gap-2 text-sm text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
               <AlertCircle className="w-4 h-4" />
               <span>{error}</span>
             </div>
           )}
-        </div>
-      </header>
-
-      {/* Messages */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-4 py-6 max-w-3xl">
           <div className="space-y-4">
             {messages.map((message) => (
               <ChatMessage

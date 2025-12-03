@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Bot, User, MapPin, Clock, Phone } from "lucide-react";
+import chatLogo from "@/assets/logochatน้องปลาทู.png";
 
 type StructuredPlace = {
   id?: string | number;
@@ -122,13 +123,17 @@ const ChatMessage = ({
       {/* Avatar */}
       <div
         className={cn(
-          "flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center",
+          "flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden",
           isUser
             ? "bg-primary text-primary-foreground"
             : "bg-secondary text-secondary-foreground"
         )}
       >
-        {isUser ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
+        {isUser ? (
+          <User className="w-5 h-5" />
+        ) : (
+          <img src={chatLogo} alt="NongPlatoo" className="w-full h-full object-cover" />
+        )}
       </div>
 
       {/* Message Bubble */}

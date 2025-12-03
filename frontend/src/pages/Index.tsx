@@ -54,29 +54,29 @@ const Index = () => {
         {/* Content */}
         <div className="relative z-10 container mx-auto px-4 text-center">
           <div className="max-w-3xl mx-auto animate-fade-in">
-            <h1 className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-primary-foreground mb-4 leading-tight">
-              <span className="block">สำรวจ</span>
-              <span className="block text-golden">สมุทรสงคราม</span>
+            <h1 className="font-display text-4xl md:text-6xl lg:text-6xl font-bold text-primary-foreground mb-4 leading-tight">
+              <span className="block mb-3">น้องปลาทู</span>
+              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์ท่องเที่ยว</span>
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/90 mb-4 font-display">
               Explore Samut Songkhram
             </p>
             <p className="text-lg text-primary-foreground/80 mb-8 max-w-xl mx-auto">
-              with Your AI Travel Guide — Discover hidden gems, floating markets, and authentic Thai culture
+              with Nong Platoo, public relations assistant travel that will take everyone to see the local culture Most natural tourist attractions
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/places">
                 <Button variant="hero" size="xl" className="w-full sm:w-auto">
                   <MapPin className="w-5 h-5" />
-                  Browse Places
+                  ค้นหาสถานที่
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
               <Link to="/chat">
                 <Button variant="heroOutline" size="xl" className="w-full sm:w-auto">
                   <MessageCircle className="w-5 h-5" />
-                  Chat with AI Guide
+                  Chat with NongPlatoo
                 </Button>
               </Link>
             </div>
@@ -127,10 +127,10 @@ const Index = () => {
                 <MessageCircle className="w-8 h-8 text-primary-foreground" />
               </div>
               <h2 className="font-display text-2xl md:text-3xl font-bold text-primary-foreground mb-4">
-                พบกับ Platu — AI Travel Assistant
+                พบกับ NongPlatoo.Ai
               </h2>
               <p className="text-primary-foreground/80 text-lg mb-8 max-w-xl mx-auto">
-                Get personalized recommendations, plan your perfect day trip, and discover hidden gems with our AI-powered travel assistant.
+                ให้น้องปลาทูช่วยวางแผนเที่ยว ค้นหาที่กิน-ที่เที่ยวลับแบบรู้ใจ จัดทริปวันหยุดของคุณให้ง่ายและสนุกกว่าเดิม
               </p>
               <Link to="/chat">
                 <Button
