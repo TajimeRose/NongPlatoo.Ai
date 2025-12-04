@@ -3,7 +3,7 @@ import { MapPin, MessageCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import CategoryCard from "@/components/CategoryCard";
-import heroImage from "@/assets/รูปปก.jpg";
+import heroImage from "@/assets/ปกเว็บ.jpg";
 import marketImage from "@/assets/category-market.jpg";
 import templeImage from "@/assets/category-temple.jpg";
 import homestayImage from "@/assets/category-homestay.jpg";
