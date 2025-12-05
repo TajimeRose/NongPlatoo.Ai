@@ -1,9 +1,25 @@
-"""Lightweight database helpers used across the project.
+"""Database helpers and models for the project.
 
-The module exposes a SQLAlchemy ``Place`` model together with engine/session
-helpers that other packages (for example ``services.database``) rely on.  A
-small ``search_places`` utility is also provided for quick manual testing via
-scripts or notebooks.
+This module provides:
+
+1. SQLAlchemy ORM models:
+   - Place          → maps to `places` table
+   - TouristPlace   → maps to `tourist_places` table
+
+2. Connection / session helpers:
+   - get_db_url()
+   - get_engine()
+   - get_session_factory()
+   - get_db()
+   - init_db()
+
+3. High-level utilities:
+   - search_places(keyword, limit) → domain-specific search over places & tourist_places
+
+4. Generic database utilities (work with ANY table in the database):
+   - list_tables()                      → list all table names
+   - fetch_rows(table_name, limit)      → fetch rows from any table as dicts
+   - search_any_table(keyword, limit)   → search all tables' text columns
 """
 
 from __future__ import annotations
@@ -16,9 +32,24 @@ try:
 except ImportError:  # pragma: no cover - optional dependency during runtime
     load_dotenv = None  # type: ignore
 
-from sqlalchemy import JSON, Column, Float, Integer, String, Text, cast, create_engine, or_, select
+from sqlalchemy import (
+    JSON,
+    Column,
+    Float,
+    Integer,
+    String,
+    Text,
+    cast,
+    create_engine,
+    or_,
+    select,
+    MetaData,
+    Table,
+    inspect,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 
 if load_dotenv:
     # Automatically pull DATABASE_URL, OPENAI_API_KEY, etc. from .env files.
@@ -44,7 +75,6 @@ class Place(Base):
     description = Column(Text)
     images = Column(JSON)
     tags = Column(JSON)  # list[str]
-    link = Column(String)
 
     def to_dict(self) -> Dict[str, object]:
         """Convert to dict with chatbot-compatible field names and defaults."""
@@ -53,13 +83,14 @@ class Place(Base):
         if self.address is not None:
             # Try to extract city/district from address
             import re
-            city_match = re.search(r'(อำเภอ|อ\.)\s*([^\s,]+)', str(self.address))
+
+            city_match = re.search(r"(อำเภอ|อ\.)\s*([^\s,]+)", str(self.address))
             if city_match:
                 city_value = city_match.group(2)
-        
+
         # Build type list from category
         type_value = [self.category] if self.category is not None else []
-        
+
         return {
             "id": str(self.id),
             "place_id": self.place_id,
@@ -74,7 +105,6 @@ class Place(Base):
             "rating": self.rating,
             "reviews": self.reviews,
             "tags": self.tags if self.tags is not None else [],
-            "link": self.link,
             "highlights": self.tags if self.tags is not None else [],  # Use tags as highlights
             "place_information": {
                 "detail": self.description,
@@ -110,20 +140,21 @@ class TouristPlace(Base):
         if location_str:
             # Remove 'อำเภอ' prefix if present
             import re
-            city_match = re.search(r'(?:อำเภอ|อ\.)\s*([^\s,]+)', location_str)
+
+            city_match = re.search(r"(?:อำเภอ|อ\.)\s*([^\s,]+)", location_str)
             if city_match:
                 city_value = city_match.group(1)
             else:
                 city_value = location_str
-        
+
         # Build type list from tags
         tags_list = list(self.tags) if self.tags is not None else []  # type: ignore
         type_value = tags_list[:2] if len(tags_list) > 0 else []
-        
+
         rating_val = typing_cast(float | None, self.rating)
         rating_value = float(rating_val) if rating_val is not None else 0.0
         images_list = list(self.images) if self.images is not None else []  # type: ignore
-        
+
         return {
             "id": f"tourist_{self.id}",
             "place_id": f"tourist_{self.id}",
@@ -142,7 +173,9 @@ class TouristPlace(Base):
             "highlights": tags_list,
             "place_information": {
                 "detail": self.description,
-                "category_description": type_value[0] if len(type_value) > 0 else "สถานที่ท่องเที่ยว",
+                "category_description": (
+                    type_value[0] if len(type_value) > 0 else "สถานที่ท่องเที่ยว"
+                ),
             },
             "images": images_list,
             "source": "tourist_places",
@@ -153,11 +186,69 @@ class TouristPlace(Base):
 
 
 def get_db_url() -> str:
+    """Resolve the database URL.
+
+    Priority order:
+    1. `DATABASE_URL` environment variable (Coolify usually provides this).
+    2. Build URL from `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_HOST` /
+       `POSTGRES_PORT` / `POSTGRES_DB`.
+    3. Fallback to a sensible local Postgres URL used for development.
+
+    Supports an optional SSL mode via `PGSSLMODE` or `DB_SSLMODE` which will
+    be appended as a query parameter.
+    """
     url = os.getenv("DATABASE_URL")
     if url:
         return url
-    print("[WARN] DATABASE_URL is not set; falling back to the default postgres URL")
-    # Adjust the fallback to match your actual database name if needed.
+
+    # Try common Postgres environment variables (Coolify and other PaaS)
+    pg_user = os.getenv("POSTGRES_USER") or os.getenv("DB_USER") or os.getenv("PGUSER")
+    pg_password = (
+        os.getenv("POSTGRES_PASSWORD")
+        or os.getenv("DB_PASSWORD")
+        or os.getenv("PGPASSWORD")
+        or ""
+    )
+    pg_host = (
+        os.getenv("POSTGRES_HOST")
+        or os.getenv("DB_HOST")
+        or os.getenv("PGHOST")
+        or "localhost"
+    )
+    pg_port = (
+        os.getenv("POSTGRES_PORT")
+        or os.getenv("DB_PORT")
+        or os.getenv("PGPORT")
+        or "5432"
+    )
+    pg_db = (
+        os.getenv("POSTGRES_DB")
+        or os.getenv("DB_NAME")
+        or os.getenv("PGDATABASE")
+        or "worldjourney"
+    )
+
+    if pg_user:
+        base = f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
+
+        # Optional SSL mode support
+        sslmode = (
+            os.getenv("PGSSLMODE")
+            or os.getenv("DB_SSLMODE")
+            or os.getenv("SQLALCHEMY_SSLMODE")
+        )
+        if sslmode:
+            # If the base already contains query params (unlikely here) we should append with &
+            sep = "&" if "?" in base else "?"
+            return f"{base}{sep}sslmode={sslmode}"
+
+        return base
+
+    # Final fallback
+    print(
+        "[WARN] DATABASE_URL is not set and POSTGRES_* vars not found; "
+        "falling back to default postgres URL"
+    )
     return "postgresql://postgres:password@localhost:5432/worldjourney"
 
 
@@ -166,6 +257,7 @@ _SESSION_FACTORY: sessionmaker | None = None
 
 
 def get_engine() -> Engine:
+    """Return a singleton SQLAlchemy Engine."""
     global _ENGINE
     if _ENGINE is None:
         _ENGINE = create_engine(get_db_url(), future=True, pool_pre_ping=True)
@@ -173,14 +265,17 @@ def get_engine() -> Engine:
 
 
 def get_session_factory() -> sessionmaker:
+    """Return a singleton session factory."""
     global _SESSION_FACTORY
     if _SESSION_FACTORY is None:
-        _SESSION_FACTORY = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, future=True)
+        _SESSION_FACTORY = sessionmaker(
+            bind=get_engine(), autoflush=False, autocommit=False, future=True
+        )
     return _SESSION_FACTORY
 
 
 def init_db() -> None:
-    """Create tables if they do not exist yet."""
+    """Create ORM-declared tables if they do not exist yet."""
     Base.metadata.create_all(get_engine())
 
 
@@ -198,49 +293,141 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
+# ---------------------------------------------------------------------------
+# Domain-specific search over the tourism tables
+# ---------------------------------------------------------------------------
+
+
 def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
-    """Search both ``places`` and ``tourist_places`` tables for records containing ``keyword``."""
+    """
+    Search both ``places`` and ``tourist_places`` tables for records
+    containing ``keyword``.
 
-    init_db()
-    session_factory = get_session_factory()
+    If any database error occurs, log it and return an empty list so that
+    the chatbot can still answer using pure GPT instead of crashing the API.
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        kw = f"%{keyword}%"
+
+        # Search regular places
+        places_stmt = (
+            select(Place)
+            .where(
+                or_(
+                    Place.name.ilike(kw),
+                    Place.category.ilike(kw),
+                    Place.address.ilike(kw),
+                    Place.description.ilike(kw),
+                    cast(Place.tags, Text).ilike(kw),  # tags stored as JSON/array
+                )
+            )
+            .order_by(Place.rating.desc().nullslast())
+        )
+
+        # Search tourist places
+        tourist_stmt = (
+            select(TouristPlace)
+            .where(
+                or_(
+                    TouristPlace.name_th.ilike(kw),
+                    TouristPlace.location.ilike(kw),
+                    TouristPlace.description.ilike(kw),
+                    cast(TouristPlace.tags, Text).ilike(kw),
+                )
+            )
+            .order_by(TouristPlace.rating.desc().nullslast())
+        )
+
+        with session_factory() as session:
+            places_rows: Iterable[Place] = session.scalars(places_stmt)
+            tourist_rows: Iterable[TouristPlace] = session.scalars(tourist_stmt)
+
+            results: List[Dict[str, object]] = [
+                place.to_dict() for place in places_rows
+            ]
+            results.extend(place.to_dict() for place in tourist_rows)
+
+            # Sort by rating and limit
+            results.sort(
+                key=lambda x: float(x.get("rating", 0) or 0),  # type: ignore
+                reverse=True,
+            )
+            return results[:limit]
+
+    except SQLAlchemyError as e:
+        # Important: do NOT crash the API; log and fall back to GPT-only mode.
+        print(f"[WARN] search_places DB error: {e}")
+        return []
+
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers: work with ANY table in the connected database
+# ---------------------------------------------------------------------------
+
+
+def list_tables() -> list[str]:
+    """Return a list of all table names in the current database."""
+    inspector = inspect(get_engine())
+    return inspector.get_table_names()
+
+
+def fetch_rows(table_name: str, limit: int = 100) -> list[dict[str, object]]:
+    """
+    Fetch up to `limit` rows from the given table as plain dicts.
+
+    This works for any existing table in the database, even if we don't have
+    an explicit ORM model for it.
+    """
+    engine = get_engine()
+    metadata = MetaData()
+    table = Table(table_name, metadata, autoload_with=engine)
+
+    stmt = select(table).limit(limit)
+
+    rows: list[dict[str, object]] = []
+    with engine.connect() as conn:
+        for row in conn.execute(stmt):
+            rows.append(dict(row._mapping))  # row._mapping is a dict-like view
+    return rows
+
+
+def search_any_table(keyword: str, limit_per_table: int = 10) -> list[dict[str, object]]:
+    """
+    Search all tables for the keyword in text-like columns.
+
+    Returns a list of dicts with an extra key:
+        '__table__' → the source table name.
+
+    This is intended for debugging, admin tools, or AI-driven data exploration.
+    """
+    engine = get_engine()
+    inspector = inspect(engine)
+    metadata = MetaData()
+
     kw = f"%{keyword}%"
-    
-    # Search regular places
-    places_stmt = (
-        select(Place)
-        .where(
-            or_(
-                Place.name.ilike(kw),
-                Place.category.ilike(kw),
-                Place.address.ilike(kw),
-                Place.description.ilike(kw),
-                cast(Place.tags, Text).ilike(kw),  # tags stored as JSON/array
-            )
-        )
-        .order_by(Place.rating.desc().nullslast())
-    )
-    
-    # Search tourist places
-    tourist_stmt = (
-        select(TouristPlace)
-        .where(
-            or_(
-                TouristPlace.name_th.ilike(kw),
-                TouristPlace.location.ilike(kw),
-                TouristPlace.description.ilike(kw),
-                cast(TouristPlace.tags, Text).ilike(kw),
-            )
-        )
-        .order_by(TouristPlace.rating.desc().nullslast())
-    )
+    results: list[dict[str, object]] = []
 
-    with session_factory() as session:
-        places_rows: Iterable[Place] = session.scalars(places_stmt)
-        tourist_rows: Iterable[TouristPlace] = session.scalars(tourist_stmt)
-        
-        results = [place.to_dict() for place in places_rows]
-        results.extend([place.to_dict() for place in tourist_rows])
-        
-        # Sort by rating and limit
-        results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
-        return results[:limit]
+    for table_name in inspector.get_table_names():
+        table = Table(table_name, metadata, autoload_with=engine)
+
+        # Pick only text-like columns
+        text_cols = [
+            col for col in table.c if isinstance(col.type, (String, Text))
+        ]
+        if not text_cols:
+            continue
+
+        # Build OR condition: col1 ILIKE '%kw%' OR col2 ILIKE '%kw%' ...
+        cond = or_(*[col.ilike(kw) for col in text_cols])
+        stmt = select(table).where(cond).limit(limit_per_table)
+
+        with engine.connect() as conn:
+            for row in conn.execute(stmt):
+                row_dict = dict(row._mapping)
+                row_dict["__table__"] = table_name
+                results.append(row_dict)
+
+    return results
