@@ -8,27 +8,47 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
 
-# ---------------------------------------------------------
-# 🔧 FIX 1: เพิ่มโฟลเดอร์ 'backend' เข้าไปใน Path
-# เพื่อให้ไฟล์ chat.py สามารถเรียกเพื่อนๆ (configs, db) ได้
-# ---------------------------------------------------------
-sys.path.append(os.path.join(os.path.dirname(__file__), 'backend'))
+# Ensure the current directory and optional 'backend' subdirectory are in sys.path.
+current_dir = os.path.dirname(__file__)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+backend_dir = os.path.join(current_dir, 'backend')
+if os.path.isdir(backend_dir) and backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 
-# 1. โหลด Environment
 load_dotenv()
 
-# 2. สร้าง app
 app = Flask(__name__)
 CORS(app)
 
-# ---------------------------------------------------------
-# 🔧 FIX 2: Import Modules (ตอนนี้ import 'chat' ตรงๆ ได้แล้ว)
-# ---------------------------------------------------------
 try:
+    # Attempt to import chat utilities from either root or the 'backend' package.
     from chat import chat_with_bot, get_chat_response
+except Exception as e:
+    # Fallback definitions to prevent NameError if imports fail. These will
+    # raise a runtime error when used, making the failure explicit.
+    def chat_with_bot(*args: object, **kwargs: object) -> str:
+        raise RuntimeError(f"Chat module unavailable: {e}")
+
+    def get_chat_response(*args: object, **kwargs: object) -> dict:
+        return {
+            'response': '',
+            'structured_data': [],
+            'language': 'th',
+            'intent': None,
+            'source': 'error',
+            'error': f'Chat module unavailable: {e}',
+        }
+    print(f"⚠️ Warning: Could not import chat module: {e}")
+
+try:
+    # Import database initialization helper
     from db import init_db
-except ImportError as e:
-    print(f"⚠️ Warning: Could not import chat/db modules: {e}")
+except Exception as e:
+    # Provide a noop init_db to avoid UnboundLocalError; it will log the issue.
+    def init_db() -> None:
+        print(f"[WARN] init_db unavailable due to import error: {e}")
+    print(f"⚠️ Warning: Could not import db module: {e}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -39,11 +59,6 @@ FIREBASE_ENV_MAP = {
     'appId': 'FIREBASE_APP_ID',
     'databaseURL': 'FIREBASE_DATABASE_URL',
 }
-
-# ---------------------------------------------------------
-# 🔧 FIX 3: ชี้เป้า Static Files ไปที่ 'backend/static'
-# เพราะ Dockerfile copy ไฟล์ Build ไปไว้ที่นั่น
-# ---------------------------------------------------------
 STATIC_FOLDER = 'backend/static'
 
 @app.route('/')
@@ -188,10 +203,10 @@ def spa_fallback(path: str):
 
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
-    # try:
-    #     init_db()
-    # except Exception as e:
-    #     print(f"[WARN] Database initialization failed: {e}")
+    try:
+        init_db()
+    except Exception as e:
+         print(f"[WARN] Database initialization failed: {e}")
     
     print("[INFO] Running app...")
     app.run(host="0.0.0.0", port=8000)
