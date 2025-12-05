@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from configs import PromptRepo
-from db import get_db, Place
+from db import get_db, Place, search_places
 try:
     from services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
@@ -492,22 +492,39 @@ class TravelChatbot:
         limit: Optional[int] = None,
         boost_keywords: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        limit = limit or self.match_limit or 5
-        
-        # Use DB search
-        results = search_places(query, limit=limit)
-        
-        # If keywords provided, try searching them too
+        """
+        Match travel data by performing a primary search with the full query and
+        then optionally expanding the search with additional keywords.  This helper
+        normalizes the ``limit`` parameter into a concrete integer value before
+        using it, preventing type errors when ``limit`` is ``None``.  It returns
+        up to that number of results from the combined searches.
+        """
+        # Normalize the limit to an integer.  If the caller doesn't specify a
+        # limit, use the runtime-configured limit (self.match_limit) or fall back
+        # to 5.  This avoids passing None into search_places or comparing None
+        # against integers.
+        limit_value: int = (
+            limit if isinstance(limit, int) and limit is not None else self.match_limit or 5
+        )
+
+        # Perform the initial DB search using the full query
+        results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
+
+        # If the caller provided additional keywords, search each keyword and
+        # merge any new results until we reach the limit.  Use a small fixed
+        # per-keyword limit to avoid flooding results from a single keyword.
         if keywords:
             for kw in keywords:
-                if len(results) >= limit:
+                if len(results) >= limit_value:
                     break
                 kw_results = search_places(kw, limit=2)
                 for res in kw_results:
-                    if not any(r['id'] == res['id'] for r in results):
+                    # Avoid adding duplicates by checking the 'id' field
+                    if not any(r.get('id') == res.get('id') for r in results):
                         results.append(res)
-                        
-        return results[:limit]
+
+        # Trim the final result list to the normalized limit
+        return results[:limit_value]
 
     def _select_trip_guides_for_query(
         self,
