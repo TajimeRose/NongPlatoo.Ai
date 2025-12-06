@@ -18,10 +18,13 @@ if os.path.isdir(backend_dir) and backend_dir not in sys.path:
 
 load_dotenv()
 
-# Resolve static roots (prefer backend/static, fall back to frontend/dist)
+# Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
 BASE_DIR = os.path.dirname(__file__)
-STATIC_PRIMARY = os.path.join(BASE_DIR, "backend", "static")
-STATIC_FALLBACK = os.path.join(BASE_DIR, "frontend", "dist")
+STATIC_ROOTS = [
+    os.path.join(BASE_DIR, "backend", "static"),
+    os.path.join(BASE_DIR, "frontend", "dist"),
+    os.path.join(BASE_DIR, "static"),
+]
 
 # Local utilities
 from backend.visit_counter import get_counts, increment_visit, normalize_path
@@ -69,7 +72,7 @@ FIREBASE_ENV_MAP = {
 }
 def _find_static_file(filename: str) -> tuple[str, str] | None:
     """Return (folder, filename) for the first static folder containing the file."""
-    for folder in (STATIC_PRIMARY, STATIC_FALLBACK):
+    for folder in STATIC_ROOTS:
         candidate = os.path.join(folder, filename)
         if os.path.isfile(candidate):
             return folder, filename
@@ -78,7 +81,7 @@ def _find_static_file(filename: str) -> tuple[str, str] | None:
 
 def _find_asset_file(path: str) -> tuple[str, str] | None:
     """Return (folder, path) for the first assets folder containing the file."""
-    for folder in (STATIC_PRIMARY, STATIC_FALLBACK):
+    for folder in STATIC_ROOTS:
         candidate = os.path.join(folder, "assets", path)
         if os.path.isfile(candidate):
             return os.path.join(folder, "assets"), path
