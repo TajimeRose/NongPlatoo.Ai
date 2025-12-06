@@ -34,9 +34,8 @@ COPY app.py ./
 COPY backend/ ./backend/
 
 # 4. Copy Frontend ที่ Build เสร็จแล้ว
-# เนื่องจาก app.py อยู่ที่ Root, Flask จะมองหา static folder ที่ Root เหมือนกัน
-# เราจึงวาง Dist จาก Frontend ไว้ที่ ./static
-COPY --from=frontend-builder /app/frontend/dist ./static
+# Build จาก Stage 1 ถูกส่งไปที่ /app/backend/static (ดู vite.config.ts)
+COPY --from=frontend-builder /app/backend/static ./backend/static
 
 # 5. Entrypoint & Environment
 COPY entrypoint.sh ./
