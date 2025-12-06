@@ -7,6 +7,7 @@ import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
+from visit_counter import get_counts, increment_visit, normalize_path
 
 # Ensure the current directory and optional 'backend' subdirectory are in sys.path.
 current_dir = os.path.dirname(__file__)
@@ -117,6 +118,32 @@ def api_chat():
         })
     
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/visits', methods=['GET', 'POST'])
+def visits():
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            path = normalize_path(data.get('path') or '/')
+            total, page_total, pages = increment_visit(path)
+            return jsonify({
+                'success': True,
+                'path': path,
+                'total': total,
+                'page_total': page_total,
+                'pages': pages
+            })
+
+        counts = get_counts()
+        return jsonify({
+            'success': True,
+            'total': counts.get('total', 0),
+            'pages': counts.get('pages', {})
+        })
+    except Exception as e:
+        print(f"[ERROR] /api/visits failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])
