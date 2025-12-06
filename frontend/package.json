@@ -9,7 +9,7 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy-flask": "vite build; Remove-Item -Recurse -Force ../backend/static/*; Copy-Item -Recurse dist/* ../backend/static/"
+    "deploy-flask": "vite build"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
