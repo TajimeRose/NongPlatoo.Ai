@@ -7,7 +7,6 @@ import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
-from visit_counter import get_counts, increment_visit, normalize_path
 
 # Ensure the current directory and optional 'backend' subdirectory are in sys.path.
 current_dir = os.path.dirname(__file__)
@@ -18,6 +17,14 @@ if os.path.isdir(backend_dir) and backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 load_dotenv()
+
+# Resolve static roots (prefer backend/static, fall back to frontend/dist)
+BASE_DIR = os.path.dirname(__file__)
+STATIC_PRIMARY = os.path.join(BASE_DIR, "backend", "static")
+STATIC_FALLBACK = os.path.join(BASE_DIR, "frontend", "dist")
+
+# Local utilities
+from backend.visit_counter import get_counts, increment_visit, normalize_path
 
 app = Flask(__name__)
 CORS(app)
@@ -60,15 +67,38 @@ FIREBASE_ENV_MAP = {
     'appId': 'FIREBASE_APP_ID',
     'databaseURL': 'FIREBASE_DATABASE_URL',
 }
-STATIC_FOLDER = 'backend/static'
+def _find_static_file(filename: str) -> tuple[str, str] | None:
+    """Return (folder, filename) for the first static folder containing the file."""
+    for folder in (STATIC_PRIMARY, STATIC_FALLBACK):
+        candidate = os.path.join(folder, filename)
+        if os.path.isfile(candidate):
+            return folder, filename
+    return None
+
+
+def _find_asset_file(path: str) -> tuple[str, str] | None:
+    """Return (folder, path) for the first assets folder containing the file."""
+    for folder in (STATIC_PRIMARY, STATIC_FALLBACK):
+        candidate = os.path.join(folder, "assets", path)
+        if os.path.isfile(candidate):
+            return os.path.join(folder, "assets"), path
+    return None
 
 @app.route('/')
 def index():
-    return send_from_directory(STATIC_FOLDER, 'index.html')
+    found = _find_static_file('index.html')
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
     
 @app.route('/assets/<path:path>')
 def send_assets(path):
-    return send_from_directory(f'{STATIC_FOLDER}/assets', path)
+    found = _find_asset_file(path)
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
@@ -223,10 +253,18 @@ def health_check():
 @app.route('/<path:path>')
 def spa_fallback(path: str):
     if path == 'favicon.ico':
-        return send_from_directory(STATIC_FOLDER, 'favicon.ico')
+        found = _find_static_file('favicon.ico')
+        if found:
+            folder, fname = found
+            return send_from_directory(folder, fname)
+        abort(404)
     if path.startswith(('api/', 'assets/', 'static/', 'firebase_config.js')):
         abort(404)
-    return send_from_directory(STATIC_FOLDER, 'index.html')
+    found = _find_static_file('index.html')
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
 
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
