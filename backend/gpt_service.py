@@ -100,7 +100,7 @@ class GPTService:
                 ],
                 temperature=self.temperature,
                 top_p=self.top_p,
-                max_tokens=self.max_completion_tokens,
+                max_completion_tokens=self.max_completion_tokens,  # จะถูกแปลงเป็น max_tokens ใน helper
             )
 
             ai_response = self._safe_extract_content(response) or self._create_fallback_response(language, user_query)
@@ -140,7 +140,7 @@ class GPTService:
                 ],
                 temperature=self.greeting_temperature,
                 top_p=self.greeting_top_p,
-                max_tokens=self.greeting_max_tokens,
+                max_completion_tokens=self.greeting_max_tokens,
             )
             return self._safe_extract_content(response)
         except Exception as exc:
@@ -154,24 +154,28 @@ class GPTService:
     # ------------------------------------------------------------------
 
     def _create_chat_completion(self, **kwargs: Any):
-        """Call chat.completions.create with compatibility fallback."""
+        """Safe wrapper around client.chat.completions.create for openai>=1.x."""
+
         if not self.client:
             raise RuntimeError("OpenAI client not initialized")
-        kwargs = dict(kwargs)
-        kwargs.setdefault("timeout", 15)
+
+        # --- Normalize parameters for new OpenAI client ---
+        # 1) max_completion_tokens -> max_tokens
         if "max_completion_tokens" in kwargs:
             kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")
 
-        print("[GPT] Calling OpenAI…")
-        response = self.client.chat.completions.create(**kwargs)
-        print("[GPT] Response received")
-        return response
+        # 2) Remove parameters that may not be supported for gpt-4o
+        kwargs.pop("presence_penalty", None)
+        kwargs.pop("frequency_penalty", None)
+        # --------------------------------------------------
+
+        # ถ้ามี error ให้โยนออกไปเลย แล้วไปจับในชั้นบน (generate_response / greeting)
+        return self.client.chat.completions.create(**kwargs)
 
     @staticmethod
     def _detect_language(text: str) -> str:
         thai_chars = sum(1 for ch in text if "\u0e00" <= ch <= "\u0e7f")
         return "th" if thai_chars > len(text) * 0.3 else "en"
-
 
     def _format_context_data(self, context_data: List[Dict[str, Any]], data_type: str) -> str:
         if not context_data:
