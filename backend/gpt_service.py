@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Dict, List, Optional
+import logging
 
 from openai import OpenAI
 
 from configs import PromptRepo
 
 PROMPT_REPO = PromptRepo()
+logger = logging.getLogger(__name__)
 
 
 class GPTService:
@@ -36,6 +38,8 @@ class GPTService:
         self.greeting_temperature = greeting_params.get("temperature", 0.8)
         self.greeting_max_tokens = greeting_params.get("max_completion_tokens", 150)
         self.greeting_top_p = greeting_params.get("top_p", 1.0)
+        self.request_timeout = chat_params.get("timeout_seconds", 15)
+        self.greeting_timeout = greeting_params.get("timeout_seconds", self.request_timeout)
 
         if not self.api_key:
             print("[WARN] OPENAI_API_KEY not found")
@@ -101,6 +105,7 @@ class GPTService:
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_completion_tokens=self.max_completion_tokens,  # จะถูกแปลงเป็น max_tokens ใน helper
+                timeout=self.request_timeout,
             )
 
             ai_response = self._safe_extract_content(response) or self._create_fallback_response(language, user_query)
@@ -141,6 +146,7 @@ class GPTService:
                 temperature=self.greeting_temperature,
                 top_p=self.greeting_top_p,
                 max_completion_tokens=self.greeting_max_tokens,
+                timeout=self.greeting_timeout,
             )
             return self._safe_extract_content(response)
         except Exception as exc:
@@ -168,6 +174,10 @@ class GPTService:
         kwargs.pop("presence_penalty", None)
         kwargs.pop("frequency_penalty", None)
         # --------------------------------------------------
+
+        # Ensure calls do not hang indefinitely
+        kwargs.setdefault("timeout", 15)
+        logger.debug(f"[GPT] chat.completions.create payload keys={list(kwargs.keys())}")
 
         # ถ้ามี error ให้โยนออกไปเลย แล้วไปจับในชั้นบน (generate_response / greeting)
         return self.client.chat.completions.create(**kwargs)
@@ -397,6 +407,7 @@ class GPTService:
                 temperature=0.0,
                 max_completion_tokens=200,
                 top_p=1.0,
+                timeout=self.request_timeout,
             )
             content = self._safe_extract_content(response)
             if not content:
