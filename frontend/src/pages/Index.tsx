@@ -9,13 +9,14 @@ import marketImage from "@/assets/category-market.jpg";
 import templeImage from "@/assets/category-temple.jpg";
 import homestayImage from "@/assets/category-homestay.jpg";
 import AgencyLogos from "@/components/AgencyLogos";
+import { getApiBase } from "@/lib/api";
 
 type VisitStats = {
   total: number;
   pages: Record<string, number>;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_BASE = getApiBase();
 
 const Index = () => {
   const [visitStats, setVisitStats] = useState<VisitStats | null>(null);
