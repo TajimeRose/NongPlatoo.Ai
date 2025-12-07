@@ -44,7 +44,9 @@ interface Message {
   userMessage?: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+import { getApiBase } from "@/lib/api";
+
+const API_BASE = getApiBase();
 
 const suggestedQuestions = [
   "Plan a one-day trip",

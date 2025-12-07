@@ -4,7 +4,8 @@ import json
 import os
 import sys
 import datetime
-import logging
+import concurrent.futures
+from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
@@ -225,22 +226,55 @@ def get_messages():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/messages', methods=['POST'])
 def post_message():
     try:
-        data = request.get_json()
-        if not data or 'text' not in data:
-            return jsonify({'error': 'Text is required'}), 400
-        
-        user_message = data['text']
+        data = request.get_json(silent=True) or {}
+        user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
-        
-        result = get_chat_response(user_message, user_id)
-        
+
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': 'Text is required'
+            }), 400
+
+        # ----- เรียก get_chat_response แบบมี timeout -----
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(get_chat_response, user_message, user_id)
+            try:
+                result = future.result(timeout=CHAT_TIMEOUT_SECONDS)
+            except TimeoutError:
+                # AI ตอบช้าเกินกำหนด
+                current_time = datetime.datetime.now().isoformat()
+                assistant_payload = {
+                    'role': 'assistant',
+                    'text': 'ขออภัยค่ะ ระบบใช้เวลาประมวลผลนานเกินไป กรุณาลองใหม่อีกครั้งภายหลัง',
+                    'structured_data': [],
+                    'language': 'th',
+                    'intent': None,
+                    'source': 'timeout_fallback',
+                    'createdAt': current_time,
+                    'fallback': True,
+                    'duplicate': False,
+                }
+                response_payload = {
+                    'success': False,
+                    'error': True,
+                    'message': 'AI timeout',
+                    'assistant': assistant_payload,
+                    'data_status': None,
+                    'duplicate': False,
+                }
+                return jsonify(response_payload), 504
+        # --------------------------------------------------
+
         current_time = datetime.datetime.now().isoformat()
         error_message = result.get('gpt_error') or result.get('error')
         error_flag = bool(error_message)
-        
+
         assistant_payload = {
             'role': 'assistant',
             'text': result['response'],
@@ -250,7 +284,7 @@ def post_message():
             'source': result.get('source'),
             'createdAt': current_time,
             'fallback': error_flag or result.get('source') in {'simple_fallback', 'simple'},
-            'duplicate': result.get('duplicate', False)
+            'duplicate': result.get('duplicate', False),
         }
 
         response_payload = {
@@ -259,14 +293,20 @@ def post_message():
             'message': error_message,
             'assistant': assistant_payload,
             'data_status': result.get('data_status'),
-            'duplicate': result.get('duplicate', False)
+            'duplicate': result.get('duplicate', False),
         }
 
-        return jsonify(response_payload)
-    
+        return jsonify(response_payload), 200
+
     except Exception as e:
-        print(f"[ERROR] /api/messages POST failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception("Error in /api/messages")
+        return jsonify({
+            'success': False,
+            'error': True,
+            'message': str(e)
+        }), 500
+
+
 
 
 @app.route('/api/places', methods=['GET'])
