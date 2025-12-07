@@ -18,6 +18,17 @@ if os.path.isdir(backend_dir) and backend_dir not in sys.path:
 
 load_dotenv()
 
+# Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
+BASE_DIR = os.path.dirname(__file__)
+STATIC_ROOTS = [
+    os.path.join(BASE_DIR, "backend", "static"),
+    os.path.join(BASE_DIR, "frontend", "dist"),
+    os.path.join(BASE_DIR, "static"),
+]
+
+# Local utilities
+from backend.visit_counter import get_counts, increment_visit, normalize_path
+
 app = Flask(__name__)
 CORS(app)
 
@@ -59,15 +70,38 @@ FIREBASE_ENV_MAP = {
     'appId': 'FIREBASE_APP_ID',
     'databaseURL': 'FIREBASE_DATABASE_URL',
 }
-STATIC_FOLDER = 'backend/static'
+def _find_static_file(filename: str) -> tuple[str, str] | None:
+    """Return (folder, filename) for the first static folder containing the file."""
+    for folder in STATIC_ROOTS:
+        candidate = os.path.join(folder, filename)
+        if os.path.isfile(candidate):
+            return folder, filename
+    return None
+
+
+def _find_asset_file(path: str) -> tuple[str, str] | None:
+    """Return (folder, path) for the first assets folder containing the file."""
+    for folder in STATIC_ROOTS:
+        candidate = os.path.join(folder, "assets", path)
+        if os.path.isfile(candidate):
+            return os.path.join(folder, "assets"), path
+    return None
 
 @app.route('/')
 def index():
-    return send_from_directory(STATIC_FOLDER, 'index.html')
+    found = _find_static_file('index.html')
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
     
 @app.route('/assets/<path:path>')
 def send_assets(path):
-    return send_from_directory(f'{STATIC_FOLDER}/assets', path)
+    found = _find_asset_file(path)
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
@@ -117,6 +151,32 @@ def api_chat():
         })
     
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/visits', methods=['GET', 'POST'])
+def visits():
+    try:
+        if request.method == 'POST':
+            data = request.get_json(silent=True) or {}
+            path = normalize_path(data.get('path') or '/')
+            total, page_total, pages = increment_visit(path)
+            return jsonify({
+                'success': True,
+                'path': path,
+                'total': total,
+                'page_total': page_total,
+                'pages': pages
+            })
+
+        counts = get_counts()
+        return jsonify({
+            'success': True,
+            'total': counts.get('total', 0),
+            'pages': counts.get('pages', {})
+        })
+    except Exception as e:
+        print(f"[ERROR] /api/visits failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])
@@ -196,10 +256,18 @@ def health_check():
 @app.route('/<path:path>')
 def spa_fallback(path: str):
     if path == 'favicon.ico':
-        return send_from_directory(STATIC_FOLDER, 'favicon.ico')
+        found = _find_static_file('favicon.ico')
+        if found:
+            folder, fname = found
+            return send_from_directory(folder, fname)
+        abort(404)
     if path.startswith(('api/', 'assets/', 'static/', 'firebase_config.js')):
         abort(404)
-    return send_from_directory(STATIC_FOLDER, 'index.html')
+    found = _find_static_file('index.html')
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, fname)
+    abort(404)
 
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
