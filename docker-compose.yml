@@ -9,7 +9,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - FLASK_ENV=production
       - PORT=8000
-      - DATABASE_URL=postgresql://postgres:password@db:5432/worldjourney
+      - DATABASE_URL=postgresql://postgres:PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr@38.242.132.39:5432/postgres
     restart: always
     depends_on:
       - db
@@ -18,8 +18,8 @@ services:
     image: postgres:15-alpine
     environment:
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=worldjourney
+      - POSTGRES_PASSWORD=PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr
+      - POSTGRES_DB=postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
