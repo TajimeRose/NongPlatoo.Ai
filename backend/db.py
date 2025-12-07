@@ -55,7 +55,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 if load_dotenv:
     # Automatically pull DATABASE_URL, OPENAI_API_KEY, etc. from .env files.
-    load_dotenv()
+    # Load from the backend directory's .env file
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+    else:
+        # Fallback to default behavior (searches parent directories)
+        load_dotenv()
 
 
 Base = declarative_base()
@@ -235,6 +241,11 @@ def get_db_url() -> str:
     """
     url = os.getenv("DATABASE_URL")
     if url:
+        # Clean up if the env variable accidentally includes the key name
+        # This can happen with some .env file parsing issues
+        if url.startswith("DATABASE_URL="):
+            url = url.replace("DATABASE_URL=", "", 1)
+            print(f"[WARN] DATABASE_URL had 'DATABASE_URL=' prefix, cleaned it")
         return url
 
     # Try common Postgres environment variables (Coolify and other PaaS)
