@@ -46,6 +46,8 @@ from sqlalchemy import (
     MetaData,
     Table,
     inspect,
+    DateTime,
+    func,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -183,6 +185,40 @@ class TouristPlace(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"TouristPlace(id={self.id!r}, name_th={self.name_th!r}, rating={self.rating!r})"
+
+
+class MessageFeedback(Base):
+    """ORM model for storing AI response feedback (likes/dislikes)."""
+    
+    __tablename__ = "message_feedback"
+    
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String, nullable=False, unique=True)  # Unique identifier for each AI response
+    user_id = Column(String, nullable=False)  # User who gave feedback
+    user_message = Column(Text)  # Original user question
+    ai_response = Column(Text)  # AI's response
+    feedback_type = Column(String, nullable=False)  # 'like' or 'dislike'
+    feedback_comment = Column(Text)  # Optional: reason for dislike
+    intent = Column(String)  # What the AI detected as intent
+    source = Column(String)  # Response source (gpt, database, etc.)
+    created_at = Column(DateTime, default=func.now())
+    
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "message_id": self.message_id,
+            "user_id": self.user_id,
+            "user_message": self.user_message,
+            "ai_response": self.ai_response,
+            "feedback_type": self.feedback_type,
+            "feedback_comment": self.feedback_comment,
+            "intent": self.intent,
+            "source": self.source,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"MessageFeedback(id={self.id!r}, message_id={self.message_id!r}, feedback_type={self.feedback_type!r})"
 
 
 def get_db_url() -> str:

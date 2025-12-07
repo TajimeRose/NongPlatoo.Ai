@@ -41,6 +41,7 @@ interface Message {
     source?: string;
     intent?: string;
   };
+  userMessage?: string;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
@@ -89,7 +90,7 @@ const Chat = () => {
       minute: "2-digit",
     });
 
-  const mapAssistant = (assistant: AssistantPayload): Message => {
+  const mapAssistant = (assistant: AssistantPayload, userMsg?: string): Message => {
     return {
       id: `${Date.now()}-assistant`,
       content: assistant.text,
@@ -105,6 +106,7 @@ const Chat = () => {
         source: assistant.source,
         intent: assistant.intent,
       },
+      userMessage: userMsg,
     };
   };
 
@@ -142,7 +144,7 @@ const Chat = () => {
       const data = await response.json();
 
       if (data?.assistant) {
-        setMessages((prev) => [...prev, mapAssistant(data.assistant)]);
+        setMessages((prev) => [...prev, mapAssistant(data.assistant, messageText)]);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -204,6 +206,8 @@ const Chat = () => {
                 timestamp={message.timestamp}
                 structuredData={message.structuredData}
                 meta={message.meta}
+                messageId={message.id}
+                userMessage={message.userMessage}
               />
             ))}
 
