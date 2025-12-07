@@ -119,13 +119,13 @@ const Index = () => {
           <div className="max-w-3xl mx-auto animate-fade-in">
             <h1 className="font-display text-4xl md:text-6xl lg:text-6xl font-bold text-primary-foreground mb-4 leading-tight">
               <span className="block mb-3">น้องปลาทู</span>
-              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์ท่องเที่ยว</span>
+              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์การท่องเที่ยวอัจฉริยะ</span>
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/90 mb-4 font-display">
-              การท่องเที่ยวอัจฉริยะ 
+              
             </p>
             <p className="text-lg text-primary-foreground/80 mb-8 max-w-xl mx-auto">
-              Nong Pla Too” Intelligent Travel Publicity with AI
+              “Nong Pla Too" Intelligent Travel Publicity with AI
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
