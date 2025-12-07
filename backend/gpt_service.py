@@ -100,9 +100,7 @@ class GPTService:
                 ],
                 temperature=self.temperature,
                 top_p=self.top_p,
-                max_completion_tokens=self.max_completion_tokens,
-                presence_penalty=self.presence_penalty,
-                frequency_penalty=self.frequency_penalty,
+                max_tokens=self.max_completion_tokens,
             )
 
             ai_response = self._safe_extract_content(response) or self._create_fallback_response(language, user_query)
@@ -142,7 +140,7 @@ class GPTService:
                 ],
                 temperature=self.greeting_temperature,
                 top_p=self.greeting_top_p,
-                max_completion_tokens=self.greeting_max_tokens,
+                max_tokens=self.greeting_max_tokens,
             )
             return self._safe_extract_content(response)
         except Exception as exc:
