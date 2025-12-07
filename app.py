@@ -189,48 +189,56 @@ def get_messages():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/messages', methods=['POST'])
 def post_message():
     try:
-        data = request.get_json()
-        if not data or 'text' not in data:
-            return jsonify({'error': 'Text is required'}), 400
-        
-        user_message = data['text']
+        data = request.get_json(silent=True) or {}
+
+        # รองรับทั้ง text / message เผื่อ frontend ใช้ field ต่างกัน
+        user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
-        
-        result = get_chat_response(user_message, user_id)
-        
+
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': 'Text is required'
+            }), 400
+
         current_time = datetime.datetime.now().isoformat()
-        error_message = result.get('gpt_error') or result.get('error')
-        error_flag = bool(error_message)
-        
+
         assistant_payload = {
             'role': 'assistant',
-            'text': result['response'],
-            'structured_data': result.get('structured_data', []),
-            'language': result.get('language', 'th'),
-            'intent': result.get('intent'),
-            'source': result.get('source'),
+            'text': f'[TEST SERVER OK] คุณพิมพ์ว่า: {user_message}',
+            'structured_data': [],
+            'language': 'th',
+            'intent': None,
+            'source': 'dummy',
             'createdAt': current_time,
-            'fallback': error_flag or result.get('source') in {'simple_fallback', 'simple'},
-            'duplicate': result.get('duplicate', False)
+            'fallback': False,
+            'duplicate': False,
         }
 
         response_payload = {
-            'success': not error_flag,
-            'error': error_flag,
-            'message': error_message,
+            'success': True,
+            'error': False,
+            'message': None,
             'assistant': assistant_payload,
-            'data_status': result.get('data_status'),
-            'duplicate': result.get('duplicate', False)
+            'data_status': None,
+            'duplicate': False,
         }
 
-        return jsonify(response_payload)
-    
+        return jsonify(response_payload), 200
+
     except Exception as e:
-        print(f"[ERROR] /api/messages POST failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception("Error in /api/messages")
+        return jsonify({
+            'success': False,
+            'error': True,
+            'message': str(e)
+        }), 500
+
 
 
 @app.route('/api/feedback', methods=['POST'])
