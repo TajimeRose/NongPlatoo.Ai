@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
-import { Bot, User, MapPin, Clock, Phone } from "lucide-react";
+import { Bot, User, MapPin, Clock, Phone, ThumbsUp, ThumbsDown } from "lucide-react";
+import { useState } from "react";
 import chatLogo from "@/assets/logochatน้องปลาทู.png";
+import { Button } from "@/components/ui/button";
 
 type StructuredPlace = {
   id?: string | number;
@@ -26,7 +28,11 @@ interface ChatMessageProps {
     source?: string;
     intent?: string;
   };
+  messageId?: string;
+  userMessage?: string;
 }
+
+const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 const formatLocation = (location?: StructuredPlace["location"]): string => {
   if (!location) return "";
@@ -112,7 +118,41 @@ const ChatMessage = ({
   timestamp,
   structuredData = [],
   meta,
+  messageId,
+  userMessage,
 }: ChatMessageProps) => {
+  const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleFeedback = async (type: 'like' | 'dislike') => {
+    if (!messageId || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id: messageId,
+          user_id: 'web',
+          user_message: userMessage || '',
+          ai_response: message,
+          feedback_type: type,
+          intent: meta?.intent || '',
+          source: meta?.source || '',
+        }),
+      });
+
+      if (response.ok) {
+        setFeedback(type);
+      }
+    } catch (error) {
+      console.error('Failed to submit feedback:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -154,6 +194,39 @@ const ChatMessage = ({
           {message}
         </p>
         {structuredData.length > 0 && <StructuredPlaces places={structuredData} />}
+
+        {/* Feedback Buttons for AI Messages */}
+        {!isUser && messageId && (
+          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 px-2 text-xs",
+                feedback === 'like' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+              )}
+              onClick={() => handleFeedback('like')}
+              disabled={isSubmitting || feedback !== null}
+            >
+              <ThumbsUp className="w-3.5 h-3.5 mr-1" />
+              Helpful
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-7 px-2 text-xs",
+                feedback === 'dislike' && "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+              )}
+              onClick={() => handleFeedback('dislike')}
+              disabled={isSubmitting || feedback !== null}
+            >
+              <ThumbsDown className="w-3.5 h-3.5 mr-1" />
+              Not helpful
+            </Button>
+          </div>
+        )}
+
         {(timestamp || meta?.source) && (
           <p
             className={cn(
