@@ -307,12 +307,14 @@ def get_engine() -> Engine:
     """Return a singleton SQLAlchemy Engine."""
     global _ENGINE
     if _ENGINE is None:
+        connect_timeout_seconds = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "3"))
         _ENGINE = create_engine(
             get_db_url(), 
             future=True, 
             pool_pre_ping=True,
             connect_args={
-                'connect_timeout': 10,
+                # Fail fast if database is unreachable to avoid API timeouts
+                'connect_timeout': connect_timeout_seconds,
                 'options': '-c statement_timeout=30000'
             }
         )
