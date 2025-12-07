@@ -41,6 +41,106 @@ else:
     SentenceTransformer = None  
     cosine_similarity = None
 
+_MODEL = None
+_EMBEDDINGS = None
+
+# Shared knowledge base (keep in module scope to avoid re-allocation per instance)
+KNOWLEDGE_AREAS = {
+    "amphawa": [
+        # Thai variations
+        "ตลาดน้ำอัมพวา", "อัมพวา", "ตลาดน้ำที่มีชื่อเสียง", "ตลาดน้ำดัง",
+        "ตลาดอัมพวา", "อัมพวาเป็นยังไง", "ไปอัมพวา", "เที่ยวอัมพวา",
+        "ตลาดน้ำในสมุทรสงคราม", "ตลาดน้ำเก่าแก่", "ชมหิ่งห้อย",
+        # English variations
+        "Amphawa floating market", "Amphawa market", "famous floating market",
+        "tell me about Amphawa", "visit Amphawa", "Amphawa tourism",
+        "floating market in Samut Songkhram", "firefly watching", "weekend market"
+    ],
+    "bang_kung": [
+        # Thai variations
+        "วัดบางกุ้ง", "บางกุ้ง", "วัดในรากไผ่", "วัดที่มีรากไผ่", 
+        "วัดรากไผ่", "วัดพิเศษ", "วัดที่แปลก", "วัดที่น่าตื่นตาตื่นใจ",
+        "วัดเก่าแก่", "วัดที่มีประวัติ", "พระในรากไผ่",
+        # English variations
+        "Wat Bang Kung", "Bang Kung temple", "temple in banyan roots",
+        "temple covered by tree roots", "unique temple", "historic temple",
+        "temple with tree", "amazing temple", "special temple"
+    ],
+    "khlong_khon": [
+        # Thai variations
+        "คลองโคน", "คลองช่อง", "ป่าชายเลน", "ป่าชายเลนคลองโคน",
+        "ล่องเรือชมธรรมชาติ", "ชมนก", "ระบบนิเวศ", "ป่าชายเลนสมุทรสงคราม",
+        "คลองโคนเป็นยังไง", "ไปคลองโคน", "เที่ยวคลองโคน", "ธรรมชาติคลองโคน",
+        # English variations
+        "Khlong Khone", "Khlong Chong", "mangrove forest", "mangrove ecosystem",
+        "boat tour nature", "bird watching", "nature tour", "mangrove tour",
+        "Khlong Khone mangrove", "ecological tour", "wetland"
+    ],
+    "food": [
+        # Thai variations
+        "อาหารสมุทรสงคราม", "ของกินอร่อย", "อาหารท้องถิ่น", "อาหารดัง",
+        "กิน", "อร่อย", "ของกิน", "เมนูแนะนำ", "อาหารเด็ด", "ก๋วยเตี๋ยวเรือ",
+        "หอยทอด", "ปลาเผา", "กุ้งเผา", "ขนมหวาน", "ของฝาก",
+        # English variations
+        "Samut Songkhram food", "local cuisine", "what to eat", "delicious food",
+        "food recommendations", "local dishes", "specialties", "boat noodles",
+        "fried mussels", "grilled seafood", "local snacks", "street food"
+    ],
+    "general_travel": [
+        # Thai variations
+        "ที่เที่ยวสมุทรสงคราม", "เที่ยวไหนดี", "ที่เที่ยว", "สถานที่ท่องเที่ยว",
+        "แนะนำที่เที่ยว", "เที่ยวสมุทรสงคราม", "ไปไหนดี", "จุดท่องเที่ยว",
+        "สถานที่สำคัญ", "แลนด์มาร์ก", "ที่น่าไป", "ที่ต้องไป",
+        # English variations
+        "Samut Songkhram attractions", "places to visit", "tourist attractions",
+        "where to go", "sightseeing", "tourism spots", "must-visit places",
+        "travel recommendations", "things to do", "places to see"
+    ],
+    "accommodation": [
+        # Thai variations
+        "ที่พัก", "โรงแรม", "รีสอร์ท", "บ้านพัก", "ห้องพัก", "พักค้างคืน",
+        "จองที่พัก", "โรงแรมแนะนำ", "ที่พักดี", "ที่พักสะอาด", "ที่พักราคาถูก",
+        # English variations
+        "accommodation", "hotel", "resort", "guesthouse", "where to stay",
+        "hotel recommendations", "lodging", "overnight stay", "booking"
+    ],
+    "transportation": [
+        # Thai variations
+        "ไปยังไง", "เดินทาง", "การเดินทาง", "รถประจำทาง", "รถเช่า",
+        "ขับรถไป", "นั่งรถไป", "วิธีไป", "การขนส่ง", "จะไปยังไง",
+        # English variations
+        "how to get there", "transportation", "travel", "bus", "car rental",
+        "driving", "getting around", "how to go", "public transport"
+    ]
+}
+
+
+def get_model():
+    """Load SentenceTransformer once (singleton)."""
+    global _MODEL
+    if _MODEL is not None:
+        return _MODEL
+    if not LIBRARIES_AVAILABLE or SentenceTransformer is None:
+        raise ImportError("Semantic search libraries not available")
+    print("[INFO] Loading semantic model (singleton)...")
+    _MODEL = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    print("[OK] Semantic model loaded (singleton)")
+    return _MODEL
+
+
+def get_embeddings():
+    """Compute embeddings once and reuse."""
+    global _EMBEDDINGS
+    if _EMBEDDINGS is not None:
+        return _EMBEDDINGS
+    model = get_model()
+    print("[INFO] Computing semantic embeddings (singleton)...")
+    _EMBEDDINGS = {}
+    for area, phrases in KNOWLEDGE_AREAS.items():
+        _EMBEDDINGS[area] = model.encode(phrases)
+    print("[OK] Semantic embeddings ready (singleton)")
+    return _EMBEDDINGS
+
 class SemanticMatcher:
     def __init__(self):
         """Initialize the semantic matcher with multilingual model"""
@@ -52,87 +152,9 @@ class SemanticMatcher:
         self.cosine_similarity = cosine_similarity
             
         try:
-            # Use a smaller, faster multilingual model that works with Thai and English
-            print("[INFO] Loading semantic model...")
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-            print("[OK] Semantic model loaded successfully")
-            
-            # Define knowledge areas with diverse example phrases
-            self.knowledge_areas = {
-                "amphawa": [
-                    # Thai variations
-                    "ตลาดน้ำอัมพวา", "อัมพวา", "ตลาดน้ำที่มีชื่อเสียง", "ตลาดน้ำดัง",
-                    "ตลาดอัมพวา", "อัมพวาเป็นยังไง", "ไปอัมพวา", "เที่ยวอัมพวา",
-                    "ตลาดน้ำในสมุทรสงคราม", "ตลาดน้ำเก่าแก่", "ชมหิ่งห้อย",
-                    # English variations
-                    "Amphawa floating market", "Amphawa market", "famous floating market",
-                    "tell me about Amphawa", "visit Amphawa", "Amphawa tourism",
-                    "floating market in Samut Songkhram", "firefly watching", "weekend market"
-                ],
-                "bang_kung": [
-                    # Thai variations
-                    "วัดบางกุ้ง", "บางกุ้ง", "วัดในรากไผ่", "วัดที่มีรากไผ่", 
-                    "วัดรากไผ่", "วัดพิเศษ", "วัดที่แปลก", "วัดที่น่าตื่นตาตื่นใจ",
-                    "วัดเก่าแก่", "วัดที่มีประวัติ", "พระในรากไผ่",
-                    # English variations
-                    "Wat Bang Kung", "Bang Kung temple", "temple in banyan roots",
-                    "temple covered by tree roots", "unique temple", "historic temple",
-                    "temple with tree", "amazing temple", "special temple"
-                ],
-                "khlong_khon": [
-                    # Thai variations
-                    "คลองโคน", "คลองช่อง", "ป่าชายเลน", "ป่าชายเลนคลองโคน",
-                    "ล่องเรือชมธรรมชาติ", "ชมนก", "ระบบนิเวศ", "ป่าชายเลนสมุทรสงคราม",
-                    "คลองโคนเป็นยังไง", "ไปคลองโคน", "เที่ยวคลองโคน", "ธรรมชาติคลองโคน",
-                    # English variations
-                    "Khlong Khone", "Khlong Chong", "mangrove forest", "mangrove ecosystem",
-                    "boat tour nature", "bird watching", "nature tour", "mangrove tour",
-                    "Khlong Khone mangrove", "ecological tour", "wetland"
-                ],
-                "food": [
-                    # Thai variations
-                    "อาหารสมุทรสงคราม", "ของกินอร่อย", "อาหารท้องถิ่น", "อาหารดัง",
-                    "กิน", "อร่อย", "ของกิน", "เมนูแนะนำ", "อาหารเด็ด", "ก๋วยเตี๋ยวเรือ",
-                    "หอยทอด", "ปลาเผา", "กุ้งเผา", "ขนมหวาน", "ของฝาก",
-                    # English variations
-                    "Samut Songkhram food", "local cuisine", "what to eat", "delicious food",
-                    "food recommendations", "local dishes", "specialties", "boat noodles",
-                    "fried mussels", "grilled seafood", "local snacks", "street food"
-                ],
-                "general_travel": [
-                    # Thai variations
-                    "ที่เที่ยวสมุทรสงคราม", "เที่ยวไหนดี", "ที่เที่ยว", "สถานที่ท่องเที่ยว",
-                    "แนะนำที่เที่ยว", "เที่ยวสมุทรสงคราม", "ไปไหนดี", "จุดท่องเที่ยว",
-                    "สถานที่สำคัญ", "แลนด์มาร์ก", "ที่น่าไป", "ที่ต้องไป",
-                    # English variations
-                    "Samut Songkhram attractions", "places to visit", "tourist attractions",
-                    "where to go", "sightseeing", "tourism spots", "must-visit places",
-                    "travel recommendations", "things to do", "places to see"
-                ],
-                "accommodation": [
-                    # Thai variations
-                    "ที่พัก", "โรงแรม", "รีสอร์ท", "บ้านพัก", "ห้องพัก", "พักค้างคืน",
-                    "จองที่พัก", "โรงแรมแนะนำ", "ที่พักดี", "ที่พักสะอาด", "ที่พักราคาถูก",
-                    # English variations
-                    "accommodation", "hotel", "resort", "guesthouse", "where to stay",
-                    "hotel recommendations", "lodging", "overnight stay", "booking"
-                ],
-                "transportation": [
-                    # Thai variations
-                    "ไปยังไง", "เดินทาง", "การเดินทาง", "รถประจำทาง", "รถเช่า",
-                    "ขับรถไป", "นั่งรถไป", "วิธีไป", "การขนส่ง", "จะไปยังไง",
-                    # English variations
-                    "how to get there", "transportation", "travel", "bus", "car rental",
-                    "driving", "getting around", "how to go", "public transport"
-                ]
-            }
-            
-            # Pre-compute embeddings for all knowledge areas
-            print("[INFO] Computing semantic embeddings...")
-            self.embeddings = {}
-            for area, phrases in self.knowledge_areas.items():
-                self.embeddings[area] = self.model.encode(phrases)
-            print("[OK] Semantic embeddings ready")
+            self.model = get_model()
+            self.knowledge_areas = KNOWLEDGE_AREAS
+            self.embeddings = get_embeddings()
             
         except Exception as e:
             print(f"[ERROR] Failed to initialize semantic matcher: {e}")
