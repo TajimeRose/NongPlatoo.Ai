@@ -119,7 +119,8 @@ const Index = () => {
           <div className="max-w-3xl mx-auto animate-fade-in">
             <h1 className="font-display text-4xl md:text-6xl lg:text-6xl font-bold text-primary-foreground mb-4 leading-tight">
               <span className="block mb-3">น้องปลาทู</span>
-              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์การท่องเที่ยวอัจฉริยะ</span>
+              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์การ</span>
+              <span className="block text-golden">ท่องเที่ยวอัจฉริยะ</span>
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/90 mb-4 font-display">
               
@@ -286,7 +287,7 @@ const Index = () => {
       <footer className="py-8 bg-muted border-t border-border">
         <div className="container mx-auto px-4 text-center">
           <p className="text-muted-foreground text-sm">
-            © 2025 สาขาเทคโนโลยีธุรกิจดิจิทัล วิทยาลัยเทคสมุทรสงคราม.
+            © 2025 สาขาวิชาเทคโนโลยีธุรกิจดิจิทัล  วิทยาลัยเทคนิคสมุทรสงคราม.
           </p>
         </div>
       </footer>
