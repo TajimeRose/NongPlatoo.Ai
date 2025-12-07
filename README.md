@@ -329,6 +329,10 @@ pip install -r requirements.txt
 ### Frontend
 
 ```bash
+
+# เมื่อเช็คแก้ไขใน Frontend เรียบร้อย สามารถรันรันสคลิปนี้เเพื่ออัพเดทเข้า Flaaskได้เลย
+npm run deploy-flask
+
 npm run dev          # เริ่ม development server
 npm run build        # Build สำหรับ production
 npm run deploy-flask # เมื่อ npm run build เสร็จรันต่อเมื่ออัพเข้า Flask
