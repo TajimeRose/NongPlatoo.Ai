@@ -5,6 +5,7 @@ import os
 import sys
 import datetime
 import concurrent.futures
+import logging
 from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
@@ -31,6 +32,9 @@ load_dotenv()  # Load from root if exists
 backend_env_path = os.path.join(backend_dir, '.env')
 if os.path.exists(backend_env_path):
     load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
+
+# Default timeout for GPT calls to avoid worker hangs
+CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "15"))
 
 logger.info("=" * 70)
 logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
@@ -300,10 +304,25 @@ def post_message():
 
     except Exception as e:
         app.logger.exception("Error in /api/messages")
+        current_time = datetime.datetime.now().isoformat()
+        assistant_payload = {
+            'role': 'assistant',
+            'text': '',
+            'structured_data': [],
+            'language': 'th',
+            'intent': None,
+            'source': 'error',
+            'createdAt': current_time,
+            'fallback': True,
+            'duplicate': False,
+        }
         return jsonify({
             'success': False,
             'error': True,
-            'message': str(e)
+            'message': str(e),
+            'assistant': assistant_payload,
+            'data_status': None,
+            'duplicate': False,
         }), 500
 
 
