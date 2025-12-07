@@ -232,6 +232,128 @@ def post_message():
         print(f"[ERROR] /api/messages POST failed: {e}")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/feedback', methods=['POST'])
+def submit_feedback():
+    """Submit like/dislike feedback for an AI response."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data or 'message_id' not in data or 'feedback_type' not in data:
+            return jsonify({'error': 'message_id and feedback_type are required'}), 400
+        
+        if data['feedback_type'] not in ['like', 'dislike']:
+            return jsonify({'error': 'feedback_type must be "like" or "dislike"'}), 400
+        
+        from backend.db import get_session_factory, MessageFeedback
+        session_factory = get_session_factory()
+        session = session_factory()
+        
+        try:
+            # Check if feedback already exists for this message
+            existing = session.query(MessageFeedback).filter_by(
+                message_id=data['message_id']
+            ).first()
+            
+            if existing:
+                # Update existing feedback
+                existing.feedback_type = data['feedback_type']
+                existing.feedback_comment = data.get('comment', '')
+            else:
+                # Create new feedback
+                feedback = MessageFeedback(
+                    message_id=data['message_id'],
+                    user_id=data.get('user_id', 'anonymous'),
+                    user_message=data.get('user_message', ''),
+                    ai_response=data.get('ai_response', ''),
+                    feedback_type=data['feedback_type'],
+                    feedback_comment=data.get('comment', ''),
+                    intent=data.get('intent', ''),
+                    source=data.get('source', '')
+                )
+                session.add(feedback)
+            
+            session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Feedback recorded successfully'
+            })
+            
+        finally:
+            session.close()
+            
+    except Exception as e:
+        print(f"[ERROR] /api/feedback failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/feedback/stats', methods=['GET'])
+def get_feedback_stats():
+    """Get statistics about AI response feedback."""
+    try:
+        from backend.db import get_session_factory, MessageFeedback
+        from sqlalchemy import func
+        
+        session_factory = get_session_factory()
+        session = session_factory()
+        
+        try:
+            # Overall stats
+            total_feedback = session.query(MessageFeedback).count()
+            likes = session.query(MessageFeedback).filter_by(feedback_type='like').count()
+            dislikes = session.query(MessageFeedback).filter_by(feedback_type='dislike').count()
+            
+            # Stats by source
+            source_stats = session.query(
+                MessageFeedback.source,
+                MessageFeedback.feedback_type,
+                func.count(MessageFeedback.id)
+            ).group_by(MessageFeedback.source, MessageFeedback.feedback_type).all()
+            
+            # Stats by intent
+            intent_stats = session.query(
+                MessageFeedback.intent,
+                MessageFeedback.feedback_type,
+                func.count(MessageFeedback.id)
+            ).group_by(MessageFeedback.intent, MessageFeedback.feedback_type).all()
+            
+            # Recent dislikes with comments
+            recent_dislikes = session.query(MessageFeedback).filter(
+                MessageFeedback.feedback_type == 'dislike',
+                MessageFeedback.feedback_comment != ''
+            ).order_by(MessageFeedback.created_at.desc()).limit(10).all()
+            
+            satisfaction_rate = (likes / total_feedback * 100) if total_feedback > 0 else 0
+            
+            return jsonify({
+                'success': True,
+                'stats': {
+                    'total_feedback': total_feedback,
+                    'likes': likes,
+                    'dislikes': dislikes,
+                    'satisfaction_rate': round(satisfaction_rate, 2),
+                    'by_source': [
+                        {'source': s, 'feedback_type': f, 'count': c}
+                        for s, f, c in source_stats
+                    ],
+                    'by_intent': [
+                        {'intent': i, 'feedback_type': f, 'count': c}
+                        for i, f, c in intent_stats
+                    ],
+                    'recent_issues': [fb.to_dict() for fb in recent_dislikes]
+                }
+            })
+            
+        finally:
+            session.close()
+            
+    except Exception as e:
+        print(f"[ERROR] /api/feedback/stats failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/firebase_config.js')
 def firebase_config():
     config = {}
