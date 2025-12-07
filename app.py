@@ -4,6 +4,8 @@ import json
 import os
 import sys
 import datetime
+import concurrent.futures
+from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
@@ -194,8 +196,6 @@ def get_messages():
 def post_message():
     try:
         data = request.get_json(silent=True) or {}
-
-        # รองรับทั้ง text / message เผื่อ frontend ใช้ field ต่างกัน
         user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
 
@@ -206,27 +206,59 @@ def post_message():
                 'message': 'Text is required'
             }), 400
 
+        # ----- เรียก get_chat_response แบบมี timeout -----
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(get_chat_response, user_message, user_id)
+            try:
+                result = future.result(timeout=CHAT_TIMEOUT_SECONDS)
+            except TimeoutError:
+                # AI ตอบช้าเกินกำหนด
+                current_time = datetime.datetime.now().isoformat()
+                assistant_payload = {
+                    'role': 'assistant',
+                    'text': 'ขออภัยค่ะ ระบบใช้เวลาประมวลผลนานเกินไป กรุณาลองใหม่อีกครั้งภายหลัง',
+                    'structured_data': [],
+                    'language': 'th',
+                    'intent': None,
+                    'source': 'timeout_fallback',
+                    'createdAt': current_time,
+                    'fallback': True,
+                    'duplicate': False,
+                }
+                response_payload = {
+                    'success': False,
+                    'error': True,
+                    'message': 'AI timeout',
+                    'assistant': assistant_payload,
+                    'data_status': None,
+                    'duplicate': False,
+                }
+                return jsonify(response_payload), 504
+        # --------------------------------------------------
+
         current_time = datetime.datetime.now().isoformat()
+        error_message = result.get('gpt_error') or result.get('error')
+        error_flag = bool(error_message)
 
         assistant_payload = {
             'role': 'assistant',
-            'text': f'[TEST SERVER OK] คุณพิมพ์ว่า: {user_message}',
-            'structured_data': [],
-            'language': 'th',
-            'intent': None,
-            'source': 'dummy',
+            'text': result['response'],
+            'structured_data': result.get('structured_data', []),
+            'language': result.get('language', 'th'),
+            'intent': result.get('intent'),
+            'source': result.get('source'),
             'createdAt': current_time,
-            'fallback': False,
-            'duplicate': False,
+            'fallback': error_flag or result.get('source') in {'simple_fallback', 'simple'},
+            'duplicate': result.get('duplicate', False),
         }
 
         response_payload = {
-            'success': True,
-            'error': False,
-            'message': None,
+            'success': not error_flag,
+            'error': error_flag,
+            'message': error_message,
             'assistant': assistant_payload,
-            'data_status': None,
-            'duplicate': False,
+            'data_status': result.get('data_status'),
+            'duplicate': result.get('duplicate', False),
         }
 
         return jsonify(response_payload), 200
@@ -238,6 +270,7 @@ def post_message():
             'error': True,
             'message': str(e)
         }), 500
+
 
 
 

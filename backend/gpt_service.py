@@ -43,7 +43,7 @@ class GPTService:
             return
 
         try:
-            self.client = OpenAI(api_key=self.api_key)
+            self.client = OpenAI(api_key=self.api_key, max_retries=1)
             print(f"[OK] OpenAI client init (model: {self.model_name})")
         except Exception as exc:
             print(f"[ERROR] OpenAI client init failed: {exc}")
@@ -89,6 +89,8 @@ class GPTService:
                 user_parts.append(guardrail_note)
             user_parts.append(data_context)
             user_message = "\n\n".join(part for part in user_parts if part)
+            if len(user_message) > 8000:
+                user_message = user_message[:8000]
 
             response = self._create_chat_completion(
                 model=self.model_name,
@@ -157,14 +159,15 @@ class GPTService:
         """Call chat.completions.create with compatibility fallback."""
         if not self.client:
             raise RuntimeError("OpenAI client not initialized")
-        try:
-            return self.client.chat.completions.create(**kwargs)
-        except TypeError as exc:
-            if "max_completion_tokens" in str(exc) and "max_completion_tokens" in kwargs:
-                fallback_kwargs = dict(kwargs)
-                fallback_kwargs["max_tokens"] = fallback_kwargs.pop("max_completion_tokens")
-                return self.client.chat.completions.create(**fallback_kwargs)
-            raise
+        kwargs = dict(kwargs)
+        kwargs.setdefault("timeout", 15)
+        if "max_completion_tokens" in kwargs:
+            kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")
+
+        print("[GPT] Calling OpenAI…")
+        response = self.client.chat.completions.create(**kwargs)
+        print("[GPT] Response received")
+        return response
 
     @staticmethod
     def _detect_language(text: str) -> str:
@@ -177,7 +180,7 @@ class GPTService:
             return f"No verified {data_type} data available."
 
         context_parts = [f"=== VERIFIED DATA ({data_type.upper()}) ===\n"]
-        for idx, item in enumerate(context_data[:5], 1):
+        for idx, item in enumerate(context_data[:3], 1):
             name = item.get("place_name") or item.get("name") or "Unknown"
             context_parts.append(f"\n[Place {idx}]")
             context_parts.append(f"Name: {name}")
