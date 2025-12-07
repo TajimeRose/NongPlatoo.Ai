@@ -4,9 +4,17 @@ import json
 import os
 import sys
 import datetime
+import logging
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
+
+# Setup logging for debugging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Ensure the current directory and optional 'backend' subdirectory are in sys.path.
 current_dir = os.path.dirname(__file__)
@@ -16,8 +24,33 @@ backend_dir = os.path.join(current_dir, 'backend')
 if os.path.isdir(backend_dir) and backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-load_dotenv()
+# Load environment variables from .env files
+# First try root directory, then backend directory
+load_dotenv()  # Load from root if exists
+backend_env_path = os.path.join(backend_dir, '.env')
+if os.path.exists(backend_env_path):
+    load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
 
+logger.info("=" * 70)
+logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
+logger.info("=" * 70)
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Working directory: {os.getcwd()}")
+logger.info(f"Backend directory: {backend_dir}")
+
+# Log environment status
+db_url = os.getenv("DATABASE_URL")
+if db_url:
+    # Mask password for security
+    masked = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
+    logger.info(f"✓ DATABASE_URL is set: {masked}")
+else:
+    logger.warning("✗ DATABASE_URL environment variable not found")
+
+logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
+logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
+logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
+logger.info("=" * 70)
 # Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
 BASE_DIR = os.path.dirname(__file__)
 STATIC_ROOTS = [
@@ -34,14 +67,16 @@ CORS(app)
 
 try:
     # Attempt to import chat utilities from either root or the 'backend' package.
-    from chat import chat_with_bot, get_chat_response
+    from backend.chat import chat_with_bot, get_chat_response
+    logger.info("✓ Chat module imported successfully")
 except Exception as e:
     # Fallback definitions to prevent NameError if imports fail. These will
     # raise a runtime error when used, making the failure explicit.
-    def chat_with_bot(*args: object, **kwargs: object) -> str:
+    logger.error(f"✗ Failed to import chat module: {e}")
+    def chat_with_bot(message: str, user_id: str = "default") -> str:
         raise RuntimeError(f"Chat module unavailable: {e}")
 
-    def get_chat_response(*args: object, **kwargs: object) -> dict:
+    def get_chat_response(message: str, user_id: str = "default") -> dict:
         return {
             'response': '',
             'structured_data': [],
@@ -50,16 +85,17 @@ except Exception as e:
             'source': 'error',
             'error': f'Chat module unavailable: {e}',
         }
-    print(f"⚠️ Warning: Could not import chat module: {e}")
 
 try:
     # Import database initialization helper
-    from db import init_db
+    from backend.db import init_db
+    logger.info("✓ Database module imported successfully")
 except Exception as e:
     # Provide a noop init_db to avoid UnboundLocalError; it will log the issue.
+    logger.error(f"✗ Failed to import db module: {e}")
     def init_db() -> None:
-        print(f"[WARN] init_db unavailable due to import error: {e}")
-    print(f"⚠️ Warning: Could not import db module: {e}")
+        logger.error(f"[CRITICAL] init_db unavailable due to import error: {e}")
+        print(f"[CRITICAL] init_db unavailable: {e}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -233,6 +269,40 @@ def post_message():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/places', methods=['GET'])
+def get_all_places():
+    """Get all places from database for the Places page."""
+    try:
+        from backend.db import get_session_factory, Place, TouristPlace
+        
+        session_factory = get_session_factory()
+        session = session_factory()
+        
+        try:
+            places = session.query(Place).all()
+            tourist_places = session.query(TouristPlace).all()
+            
+            all_places = [p.to_dict() for p in places]
+            all_places.extend([p.to_dict() for p in tourist_places])
+            
+            logger.info(f"Retrieved {len(all_places)} places from database")
+            
+            return jsonify({
+                'success': True,
+                'places': all_places,
+                'count': len(all_places)
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/places failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'places': []
+        }), 500
+
+
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
     """Submit like/dislike feedback for an AI response."""
@@ -373,7 +443,64 @@ def firebase_config():
 
 @app.route('/health')
 def health_check():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.datetime.now().isoformat()})
+    """Health check endpoint with database status"""
+    try:
+        db_status = "unknown"
+        db_message = ""
+        
+        try:
+            # Try to connect to database
+            from backend.db import get_engine
+            from sqlalchemy import text
+            engine = get_engine()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+                db_status = "connected"
+                db_message = "Database connection successful"
+                logger.info("✓ Health check: Database connected")
+        except Exception as e:
+            db_status = "disconnected"
+            db_message = str(e)
+            logger.error(f"✗ Health check: Database connection failed: {e}")
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.datetime.now().isoformat(),
+            'database': {
+                'status': db_status,
+                'message': db_message
+            }
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.datetime.now().isoformat(),
+            'error': str(e)
+        }), 500
+
+@app.route('/debug/db-info')
+def db_info():
+    """Debug endpoint showing database configuration (remove in production!)"""
+    try:
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            # Mask password for security
+            masked_url = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
+        else:
+            masked_url = "Not set"
+        
+        return jsonify({
+            'database_url': masked_url,
+            'postgres_host': os.getenv('POSTGRES_HOST', 'not set'),
+            'postgres_port': os.getenv('POSTGRES_PORT', 'not set'),
+            'postgres_db': os.getenv('POSTGRES_DB', 'not set'),
+            'postgres_user': os.getenv('POSTGRES_USER', 'not set'),
+            'environment': os.getenv('ENVIRONMENT', 'development'),
+            'note': 'This endpoint should be disabled in production'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
@@ -394,10 +521,14 @@ def spa_fallback(path: str):
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
     try:
+        logger.info("Initializing database...")
         init_db()
+        logger.info("✓ Database initialized successfully")
     except Exception as e:
-         print(f"[WARN] Database initialization failed: {e}")
+        logger.error(f"[ERROR] Database initialization failed: {e}", exc_info=True)
+        print(f"[WARN] Database initialization failed: {e}")
     
+    logger.info("[INFO] Starting Flask server on 0.0.0.0:8000...")
     print("[INFO] Running app...")
     app.run(host="0.0.0.0", port=8000)
 
