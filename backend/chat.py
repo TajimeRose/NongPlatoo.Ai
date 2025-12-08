@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
+import logging
 import re
 import time
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -45,10 +46,10 @@ if TYPE_CHECKING:
 else:
     FlexibleMatcherType = Any
 
-logger = logging.getLogger(__name__)
-
 PROMPT_REPO = PromptRepo()
 # DATA_FILE and other JSON constants removed
+
+logger = logging.getLogger(__name__)
 
 LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=[
     "สมุทรสงคราม",
@@ -1111,12 +1112,12 @@ def get_chat_response(message: str, user_id: str = "default") -> Dict[str, Any]:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(svc.test_connection)
                 try:
-                    db_connected = future.result(timeout=3)
+                    db_connected = future.result(timeout=5)  # Increased to 5 seconds for remote DB
                 except concurrent.futures.TimeoutError:
                     logger.warning("DB connectivity check timed out; proceeding without DB")
                     db_connected = False
         except Exception as exc:
-            print(f"[WARN] DB connectivity check failed: {exc}")
+            logger.warning(f"DB connectivity check failed: {exc}")
             db_connected = False
 
     if not db_connected:

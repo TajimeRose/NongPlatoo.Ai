@@ -25,6 +25,7 @@ This module provides:
 from __future__ import annotations
 
 import os
+import json
 from typing import Dict, Generator, Iterable, List, cast as typing_cast
 
 try:
@@ -38,6 +39,7 @@ from sqlalchemy import (
     Float,
     Integer,
     String,
+    text,
     Text,
     cast,
     create_engine,
@@ -301,7 +303,6 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
         session_factory = get_session_factory()
         kw = f"%{keyword}%"
 
-        # Search places table only
         places_stmt = (
             select(Place)
             .where(
@@ -310,28 +311,30 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
                     Place.category.ilike(kw),
                     Place.address.ilike(kw),
                     Place.description.ilike(kw),
-                    cast(Place.tags, Text).ilike(kw),  # tags stored as JSON/array
+                    cast(Place.tags, Text).ilike(kw),
                 )
             )
             .order_by(Place.rating.desc().nullslast())
+            .limit(limit)
         )
 
         with session_factory() as session:
             places_rows: Iterable[Place] = session.scalars(places_stmt)
+            results: List[Dict[str, object]] = [place.to_dict() for place in places_rows]
 
-            results: List[Dict[str, object]] = [
-                place.to_dict() for place in places_rows
-            ]
+        def _rating(val: Dict[str, object]) -> float:
+            try:
+                raw = val.get("rating", 0)
+                if isinstance(raw, (int, float, str)):
+                    return float(raw)
+                return 0.0
+            except Exception:
+                return 0.0
 
-            # Sort by rating and limit
-            results.sort(
-                key=lambda x: float(x.get("rating", 0) or 0),  # type: ignore
-                reverse=True,
-            )
-            return results[:limit]
+        results.sort(key=_rating, reverse=True)
+        return results[:limit]
 
     except SQLAlchemyError as e:
-        # Important: do NOT crash the API; log and fall back to GPT-only mode.
         print(f"[WARN] search_places DB error: {e}")
         return []
 

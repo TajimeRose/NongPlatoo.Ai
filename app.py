@@ -34,7 +34,8 @@ if os.path.exists(backend_env_path):
     load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
 
 # Default timeout for GPT calls to avoid worker hangs
-CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "15"))
+# Increased to 60 seconds to allow time for semantic model loading on first request
+CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "60"))
 
 logger.info("=" * 70)
 logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
@@ -584,6 +585,31 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"[ERROR] Database initialization failed: {e}", exc_info=True)
         print(f"[WARN] Database initialization failed: {e}")
+    
+    # Preload semantic model to avoid first-request timeout
+    # This prevents the 504 error that occurs when the model loads during the first chat request
+    # Wrapped in a thread with timeout to prevent blocking server startup
+    def preload_semantic_model():
+        try:
+            logger.info("Preloading semantic model...")
+            from backend.semantic_search import get_model, get_embeddings
+            get_model()  # Load the SentenceTransformer model (~2-3 seconds)
+            get_embeddings()  # Precompute embeddings (~2-3 seconds)
+            logger.info("✓ Semantic model preloaded successfully")
+        except Exception as e:
+            logger.warning(f"Semantic model preloading failed: {e}")
+            logger.warning("Chat will work but first request may take longer")
+    
+    try:
+        import threading
+        preload_thread = threading.Thread(target=preload_semantic_model, daemon=True)
+        preload_thread.start()
+        # Give it max 60 seconds to load, but don't block server startup
+        preload_thread.join(timeout=60)
+        if preload_thread.is_alive():
+            logger.warning("Semantic model preloading is taking too long, continuing without it")
+    except Exception as e:
+        logger.warning(f"Could not start preload thread: {e}")
     
     logger.info("[INFO] Starting Flask server on 0.0.0.0:8000...")
     print("[INFO] Running app...")
