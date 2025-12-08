@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import CategoryCard from "@/components/CategoryCard";
 import heroImage from "@/assets/ปกเว็บ.jpg";
-import marketImage from "@/assets/category-market.jpg";
 import templeImage from "@/assets/category-temple.jpg";
 import homestayImage from "@/assets/category-homestay.jpg";
 import AgencyLogos from "@/components/AgencyLogos";
@@ -26,22 +25,22 @@ const Index = () => {
     {
       title: "Floating Markets",
       titleTh: "ตลาดน้ำ",
-      description: "Experience the charm of traditional floating markets with fresh seafood and local delicacies",
-      image: marketImage,
+      description: "เที่ยวตลาดน้ำอัมพวา ชิมอาหารทะเลสดและวิถีพายเรือเมืองแม่กลอง",
+      image: "https://paimayang.com/wp-content/uploads/2020/02/82_20190826014648_1-840x560.jpg",
       category: "market",
     },
     {
       title: "Temples & Culture",
       titleTh: "วัดและวัฒนธรรม",
-      description: "Discover ancient temples nestled in nature and rich cultural heritage",
-      image: templeImage,
+      description: "ไหว้พระริมน้ำ ชมวัดดังและวัฒนธรรมโบราณของสมุทรสงคราม",
+      image: "https://t1.blockdit.com/photos/2023/03/64053c674d188033c3a4bb5a_800x0xcover_Xv4jzo41.jpg",
       category: "temple",
     },
     {
       title: "Homestays & Gardens",
       titleTh: "โฮมสเตย์และสวน",
-      description: "Relax in riverside homestays surrounded by lush coconut gardens",
-      image: homestayImage,
+      description: "พักโฮมสเตย์สวนมะพร้าว ริมคลองสงบใกล้กรุงเทพฯ",
+      image: "https://www.saitiew.com/upload/2024/11/3zkr3nr94bba.jpg",
       category: "homestay",
     },
   ];
