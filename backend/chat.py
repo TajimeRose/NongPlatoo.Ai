@@ -9,10 +9,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from configs import PromptRepo
-from db import get_db, Place, search_places
+from .configs import PromptRepo
+from .db import get_db, Place, search_places
 try:
-    from services.database import get_db_service
+    from .services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
 except Exception as exc:
     print(f"[WARN] Database service unavailable for adaptive flow: {exc}")
@@ -24,7 +24,7 @@ except Exception as exc:
 
 
 try:
-    from gpt_service import GPTService
+    from .gpt_service import GPTService
     GPT_AVAILABLE = True
 except Exception as exc:
     print(f"[WARN] GPT service import failed: {exc}")
@@ -32,7 +32,7 @@ except Exception as exc:
     GPTService = None
 
 try:
-    from simple_matcher import FlexibleMatcher
+    from .simple_matcher import FlexibleMatcher
     FLEXIBLE_MATCHER_AVAILABLE = True
 except Exception as exc:
     print(f"[WARN] Flexible matcher unavailable: {exc}")
@@ -40,7 +40,7 @@ except Exception as exc:
     FlexibleMatcher = None
 
 if TYPE_CHECKING:
-    from simple_matcher import FlexibleMatcher as FlexibleMatcherType
+    from .simple_matcher import FlexibleMatcher as FlexibleMatcherType
 else:
     FlexibleMatcherType = Any
 
