@@ -332,17 +332,15 @@ def post_message():
 def get_all_places():
     """Get all places from database for the Places page."""
     try:
-        from backend.db import get_session_factory, Place, TouristPlace
+        from backend.db import get_session_factory, Place
         
         session_factory = get_session_factory()
         session = session_factory()
         
         try:
             places = session.query(Place).all()
-            tourist_places = session.query(TouristPlace).all()
             
             all_places = [p.to_dict() for p in places]
-            all_places.extend([p.to_dict() for p in tourist_places])
             
             logger.info(f"Retrieved {len(all_places)} places from database")
             

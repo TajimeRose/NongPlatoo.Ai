@@ -9,7 +9,7 @@ import logging
 
 from openai import OpenAI
 
-from configs import PromptRepo
+from .configs import PromptRepo
 
 PROMPT_REPO = PromptRepo()
 logger = logging.getLogger(__name__)
