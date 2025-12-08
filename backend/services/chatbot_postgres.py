@@ -8,11 +8,11 @@ import json
 import os
 
 try:
-    from services.database import get_db_service  # type: ignore[import]
+    from .database import get_db_service  # type: ignore[import]
 except ImportError:  # Database module absent in some deployments
     get_db_service = None  # type: ignore
 
-from configs import PromptRepo
+from ..configs import PromptRepo
 
 
 class PostgreSQLTravelChatbot:
