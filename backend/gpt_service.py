@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from configs import PromptRepo
+from .configs import PromptRepo
 
 PROMPT_REPO = PromptRepo()
 
