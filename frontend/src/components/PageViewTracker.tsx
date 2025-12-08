@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { getApiBase } from "@/lib/api";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_BASE = getApiBase();
 
 const normalizePath = (pathname: string) => {
   if (!pathname || pathname === "/") {
