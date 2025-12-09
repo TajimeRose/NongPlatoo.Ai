@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import os
 import json
-from typing import Dict, Generator, Iterable, List, cast as typing_cast
+import re
+from typing import Any, Dict, Generator, Iterable, List
 
 try:
     from dotenv import load_dotenv
@@ -34,14 +35,12 @@ except ImportError:  # pragma: no cover - optional dependency during runtime
     load_dotenv = None  # type: ignore
 
 from sqlalchemy import (
-    JSON,
     Column,
-    Float,
     Integer,
+    Numeric,
     String,
     text,
     Text,
-    cast,
     create_engine,
     or_,
     select,
@@ -79,12 +78,14 @@ class Place(Base):
     place_id = Column(String, nullable=False)
     name = Column(String, nullable=False)
     category = Column(String)
-    address = Column(Text)
-    rating = Column(Float)
-    reviews = Column(Integer)
     description = Column(Text)
-    images = Column(JSON)
-    tags = Column(JSON)  # list[str]
+    address = Column(Text)
+    latitude = Column(Numeric(9, 6))
+    longitude = Column(Numeric(9, 6))
+    opening_hours = Column(Text)
+    price_range = Column(Text)
+    image_urls = Column(Text)
+    attraction_type = Column(String)
 
     def to_dict(self) -> Dict[str, object]:
         """Convert to dict with chatbot-compatible field names and defaults."""
@@ -92,14 +93,54 @@ class Place(Base):
         city_value = ""
         if self.address is not None:
             # Try to extract city/district from address
-            import re
-
             city_match = re.search(r"(อำเภอ|อ\.)\s*([^\s,]+)", str(self.address))
             if city_match:
                 city_value = city_match.group(2)
 
-        # Build type list from category
-        type_value = [self.category] if self.category is not None else []
+        # Build type list from category/attraction type
+        type_candidates: list[str] = []
+        for val in (self.attraction_type, self.category):
+            if isinstance(val, str) and val.strip():
+                type_candidates.append(val)
+        type_value = type_candidates
+
+        # Normalize image_urls from various formats (JSON list, comma/semicolon/pipe/newline separated)
+        def _parse_images(raw: Any) -> list[str]:
+            urls: list[str] = []
+            if isinstance(raw, (list, tuple, set)):
+                urls = [str(u).strip() for u in raw if u]
+            elif isinstance(raw, str):
+                stripped = raw.strip()
+                # Try JSON array first
+                if stripped.startswith("["):
+                    try:
+                        parsed = json.loads(stripped)
+                        if isinstance(parsed, list):
+                            urls = [str(u).strip() for u in parsed if u]
+                    except Exception:
+                        urls = []
+                if not urls:
+                    # Fallback split by common delimiters
+                    for token in re.split(r"[,;|\n]+", stripped):
+                        token = token.strip()
+                        if token:
+                            urls.append(token)
+            # Deduplicate while preserving order
+            seen = set()
+            deduped: list[str] = []
+            for u in urls:
+                if u and u not in seen:
+                    seen.add(u)
+                    deduped.append(u)
+            return deduped
+
+        images = _parse_images(self.image_urls)
+
+        def _to_float(value: Any) -> float | None:
+            try:
+                return float(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
 
         return {
             "id": str(self.id),
@@ -108,24 +149,29 @@ class Place(Base):
             "place_name": self.name,  # Use name as place_name
             "description": self.description,
             "address": self.address,
+            "latitude": _to_float(self.latitude),
+            "longitude": _to_float(self.longitude),
+            "opening_hours": self.opening_hours,
+            "price_range": self.price_range,
             "city": city_value,
             "province": "สมุทรสงคราม",  # Default province
             "type": type_value,
             "category": self.category,
-            "rating": self.rating,
-            "reviews": self.reviews,
-            "tags": self.tags if self.tags is not None else [],
-            "highlights": self.tags if self.tags is not None else [],  # Use tags as highlights
+            "rating": None,
+            "reviews": None,
+            "tags": type_value,
+            "highlights": type_value,
             "place_information": {
                 "detail": self.description,
-                "category_description": self.category,
+                "category_description": self.category or (type_value[0] if type_value else None),
             },
-            "images": self.images if self.images is not None else [],
+            "images": images,
+            "attraction_type": self.attraction_type,
             "source": "database",
         }
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
-        return f"Place(id={self.id!r}, name={self.name!r}, rating={self.rating!r})"
+        return f"Place(id={self.id!r}, name={self.name!r}, category={self.category!r})"
 
 
 class MessageFeedback(Base):
@@ -311,10 +357,12 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
                     Place.category.ilike(kw),
                     Place.address.ilike(kw),
                     Place.description.ilike(kw),
-                    cast(Place.tags, Text).ilike(kw),
+                    Place.attraction_type.ilike(kw),
+                    Place.opening_hours.ilike(kw),
+                    Place.price_range.ilike(kw),
                 )
             )
-            .order_by(Place.rating.desc().nullslast())
+            .order_by(Place.name.asc())
             .limit(limit)
         )
 
@@ -322,16 +370,6 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
             places_rows: Iterable[Place] = session.scalars(places_stmt)
             results: List[Dict[str, object]] = [place.to_dict() for place in places_rows]
 
-        def _rating(val: Dict[str, object]) -> float:
-            try:
-                raw = val.get("rating", 0)
-                if isinstance(raw, (int, float, str)):
-                    return float(raw)
-                return 0.0
-            except Exception:
-                return 0.0
-
-        results.sort(key=_rating, reverse=True)
         return results[:limit]
 
     except SQLAlchemyError as e:

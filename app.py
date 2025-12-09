@@ -576,6 +576,47 @@ def spa_fallback(path: str):
         return send_from_directory(folder, fname)
     abort(404)
 
+@app.route('/api/image-proxy', methods=['GET'])
+def image_proxy():
+    """Proxy endpoint to serve Google Maps images and bypass CORS restrictions."""
+    try:
+        import requests
+        from io import BytesIO
+        
+        image_url = request.args.get('url')
+        if not image_url:
+            return jsonify({'error': 'URL parameter required'}), 400
+        
+        # Security: Only allow Google image URLs
+        if not image_url.startswith('https://lh3.googleusercontent.com'):
+            return jsonify({'error': 'Only Google image URLs are allowed'}), 403
+        
+        # Fetch the image from Google
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.google.com/'
+        }
+        response = requests.get(image_url, headers=headers, timeout=10, stream=True)
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Failed to fetch image'}), response.status_code
+        
+        # Determine content type
+        content_type = response.headers.get('Content-Type', 'image/jpeg')
+        
+        # Stream the image back to the client
+        return Response(
+            response.content,
+            mimetype=content_type,
+            headers={
+                'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+                'Access-Control-Allow-Origin': '*'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Image proxy error: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
     try:
