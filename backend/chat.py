@@ -6,6 +6,7 @@ import concurrent.futures
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -96,6 +97,10 @@ class TravelChatbot:
             print("[WARN] GPT service unavailable")
 
     def _init_matcher(self) -> Optional[FlexibleMatcherType]:
+        # Check if semantic search is explicitly disabled
+        if os.getenv('DISABLE_SEMANTIC_SEARCH') == '1':
+            print("[INFO] Semantic search disabled via DISABLE_SEMANTIC_SEARCH env var")
+            return None
         if not FLEXIBLE_MATCHER_AVAILABLE or FlexibleMatcher is None:
             return None
         try:
@@ -253,6 +258,140 @@ class TravelChatbot:
             return []
 
         return self._deduplicate_entries(entries)
+
+    def _google_search_fallback(
+        self,
+        query: str,
+        keywords: Optional[List[str]] = None,
+        limit: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Fallback to Google Maps Places search when database has no results.
+        Uses Google Maps Places API to find tourism locations in Samut Songkhram.
+        Returns results normalized to Place schema format.
+        """
+        try:
+            import googlemaps
+        except ImportError:
+            print("[WARN] googlemaps not installed, skipping fallback")
+            return []
+
+        # Get Google Maps API key from environment
+        api_key = os.getenv('GOOGLE_MAPS_API_KEY')
+        if not api_key:
+            print("[WARN] GOOGLE_MAPS_API_KEY not configured, skipping fallback")
+            return []
+
+        results: List[Dict[str, Any]] = []
+        
+        try:
+            # Initialize Google Maps client with timeout
+            gmaps = googlemaps.Client(key=api_key, timeout=8)
+            
+            # Search query - combine main query with Samut Songkhram
+            search_query = f"{query} Samut Songkhram Thailand"
+            
+            print(f"[INFO] Google Maps fallback search: {search_query}")
+            
+            # Perform Places search with timeout
+            def do_search():
+                try:
+                    # Use Places API nearby search centered on Samut Songkhram
+                    # Coordinates: Samut Songkhram center (13.4549°N, 100.7588°E)
+                    response = gmaps.places_nearby(  # type: ignore
+                        location=(13.4549, 100.7588),
+                        radius=50000,  # 50km radius covers entire province
+                        keyword=search_query,
+                        language='th'
+                    )
+                    return response.get('results', [])[:limit]
+                except googlemaps.exceptions.Timeout:
+                    print("[WARN] Google Maps search timed out")
+                    return []
+                except Exception as e:
+                    print(f"[WARN] Google Maps search error: {e}")
+                    return []
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(do_search)
+                try:
+                    search_results = future.result(timeout=15)  # 15 second overall timeout
+                except concurrent.futures.TimeoutError:
+                    print("[WARN] Google Maps search timed out after 15 seconds")
+                    return []
+                except Exception as e:
+                    print(f"[WARN] Google Maps search failed: {e}")
+                    return []
+            
+            # Normalize Google Maps results to Place schema
+            for idx, result in enumerate(search_results):
+                place_id = result.get('place_id', f'gmaps_{idx}')
+                name = result.get('name', 'Unknown Place')
+                address = result.get('vicinity', 'Samut Songkhram, Thailand')
+                
+                # Extract location coordinates
+                location = result.get('geometry', {}).get('location', {})
+                lat = location.get('lat')
+                lng = location.get('lng')
+                
+                # Get rating and types
+                rating = result.get('rating', None)
+                types = result.get('types', [])
+                is_open = result.get('opening_hours', {}).get('open_now', None)
+                
+                # Get photo if available
+                photos = result.get('photos', [])
+                image_urls = []
+                if photos and api_key:
+                    for photo in photos[:1]:  # Use first photo only
+                        photo_ref = photo.get('photo_reference', '')
+                        if photo_ref:
+                            img_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference={photo_ref}&key={api_key}"
+                            image_urls.append(img_url)
+                
+                # Create normalized place object
+                normalized = {
+                    'id': f'gmaps_{hashlib.md5(place_id.encode()).hexdigest()[:10]}',
+                    'place_id': place_id,
+                    'name': name,
+                    'place_name': name,
+                    'description': f"Location: {address}. Rating: {rating}/5" if rating else f"Location: {address}",
+                    'short_description': address,
+                    'address': address,
+                    'location': address,
+                    'latitude': lat,
+                    'longitude': lng,
+                    'city': 'สมุทรสงคราม',
+                    'province': 'สมุทรสงคราม',
+                    'type': types,
+                    'category': 'From Google Maps',
+                    'rating': rating,
+                    'is_open': is_open,
+                    'images': image_urls,
+                    'image_urls': image_urls,
+                    'source': 'google_search',
+                    '_external': True,
+                    '_maps_url': f"https://www.google.com/maps/place/?q=place_id:{place_id}",
+                    'place_information': {
+                        'detail': address,
+                        'category_description': 'Tourism location from Google Maps',
+                        'source': 'Google Maps Places API'
+                    }
+                }
+                
+                results.append(normalized)
+            
+            if results:
+                print(f"[INFO] Google Maps fallback found {len(results)} results")
+
+            else:
+                print("[INFO] Google fallback found no results")
+                
+        except Exception as e:
+            print(f"[ERROR] Google search fallback failed: {e}")
+            return []
+        
+        return results
 
 
 
@@ -976,6 +1115,7 @@ class TravelChatbot:
         )
         if trip_matches:
             matched_data = self._merge_structured_data(matched_data, trip_matches)
+        
         matched_data = self._trim_structured_results(matched_data)
         preference_note = self._preference_context()
         character_note = self._character_context()
@@ -984,6 +1124,34 @@ class TravelChatbot:
             includes_local_term = any(self._contains_local_reference(str(keyword)) for keyword in keyword_pool)
         if matcher_signals.get("is_local"):
             includes_local_term = True
+        
+        # Debug logging for fallback decision
+        print(f"[DEBUG] Fallback check - matched_data: {len(matched_data)}, includes_local_term: {includes_local_term}")
+        print(f"[DEBUG] Query: {user_message}")
+        print(f"[DEBUG] Keywords: {keyword_pool}")
+        
+        # Google Search Fallback: If no data found in database, try web search
+        if not matched_data and includes_local_term:
+            print(f"[INFO] No database results for query: {user_message}")
+            print("[INFO] Attempting Google search fallback...")
+            
+            try:
+                google_results = self._google_search_fallback(
+                    query=user_message,
+                    keywords=keyword_pool,
+                    limit=3
+                )
+                
+                if google_results:
+                    matched_data = google_results
+                    print(f"[INFO] Google fallback successful: {len(google_results)} results")
+                else:
+                    print("[WARN] Google fallback returned no results")
+            except Exception as e:
+                print(f"[ERROR] Google fallback failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
         mentions_other_province = (
             not includes_local_term
             and self._mentions_other_province(user_message, keyword_pool, analysis.get("places", []))
@@ -992,12 +1160,13 @@ class TravelChatbot:
         data_status = {
             'success': bool(matched_data),
             'message': (
-                f"Matched {len(matched_data)} Samut Songkhram entries using keywords: {keyword_pool}"
+                f"Matched {len(matched_data)} entries" + 
+                (" from web search" if matched_data and matched_data[0].get('source') == 'google_search' else " using keywords: " + str(keyword_pool))
                 if matched_data else
                 f"No Samut Songkhram entries matched for keywords: {keyword_pool}"
             ),
             'data_available': bool(matched_data),
-            'source': 'local_json',
+            'source': 'google_search_fallback' if (matched_data and matched_data[0].get('source') == 'google_search') else 'local_json',
             'preference_note': preference_note,
             'character_note': character_note,
             'matching_signals': {
