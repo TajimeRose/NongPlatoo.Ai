@@ -52,6 +52,18 @@ PROMPT_REPO = PromptRepo()
 
 logger = logging.getLogger(__name__)
 
+# ====== PERFORMANCE OPTIMIZATION: Module-level caches ======
+_TRAVEL_DATA_CACHE: Optional[List[Dict[str, Any]]] = None
+_TRAVEL_DATA_CACHE_TIME: float = 0
+TRAVEL_DATA_CACHE_TTL_SECONDS = 300  # Cache travel data for 5 minutes
+
+_MATCHER_CACHE: Optional[Any] = None
+_MATCHER_CACHE_INITIALIZED = False
+
+_RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}  # Query hash -> response
+_RESPONSE_CACHE_TIME: Dict[str, float] = {}  # Query hash -> timestamp
+RESPONSE_CACHE_TTL_SECONDS = 60  # Cache identical responses for 1 minute
+
 LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=[
     "สมุทรสงคราม",
     "samut songkhram"
@@ -63,6 +75,8 @@ class TravelChatbot:
     """Chatbot powered solely by GPT (local data + prompts)."""
 
     def __init__(self) -> None:
+        global _TRAVEL_DATA_CACHE, _TRAVEL_DATA_CACHE_TIME
+        
         self.bot_name = "NongPlaToo"
         self.chatbot_prompts = PROMPT_REPO.get_prompt("chatbot/answer", default={})
         self.preferences = PROMPT_REPO.get_preferences()
@@ -71,11 +85,19 @@ class TravelChatbot:
         self.match_limit = self.runtime_config.get("matching", {}).get("max_matches", 5)
         self.display_limit = self.runtime_config.get("matching", {}).get("max_display", 4)
         self.gpt_service: Optional[Any] = None
-        self.gpt_service: Optional[Any] = None
         # self.image_links = self._load_image_links() # Removed
         # self.province_profile = self._load_province_profile() # Removed
         # raw_trip_guides = self._load_trip_guides() # Removed
-        self.travel_data = self._load_travel_data_from_db()
+        
+        # Load travel data from cache or DB
+        current_time = time.time()
+        if _TRAVEL_DATA_CACHE is not None and (current_time - _TRAVEL_DATA_CACHE_TIME) < TRAVEL_DATA_CACHE_TTL_SECONDS:
+            self.travel_data = _TRAVEL_DATA_CACHE
+        else:
+            self.travel_data = self._load_travel_data_from_db()
+            _TRAVEL_DATA_CACHE = self.travel_data
+            _TRAVEL_DATA_CACHE_TIME = current_time
+        
         self.trip_guides = {
             entry["id"]: entry
             for entry in self.travel_data
@@ -97,16 +119,23 @@ class TravelChatbot:
             print("[WARN] GPT service unavailable")
 
     def _init_matcher(self) -> Optional[FlexibleMatcherType]:
-        # Check if semantic search is explicitly disabled
-        if os.getenv('DISABLE_SEMANTIC_SEARCH') == '1':
-            print("[INFO] Semantic search disabled via DISABLE_SEMANTIC_SEARCH env var")
-            return None
+        global _MATCHER_CACHE, _MATCHER_CACHE_INITIALIZED
+        
         if not FLEXIBLE_MATCHER_AVAILABLE or FlexibleMatcher is None:
             return None
+        
+        # Return cached instance if already initialized
+        if _MATCHER_CACHE_INITIALIZED:
+            return _MATCHER_CACHE
+        
         try:
-            return FlexibleMatcher()
+            _MATCHER_CACHE = FlexibleMatcher()
+            _MATCHER_CACHE_INITIALIZED = True
+            return _MATCHER_CACHE
         except Exception as exc:
             print(f"[WARN] Cannot initialize flexible matcher: {exc}")
+            _MATCHER_CACHE = None
+            _MATCHER_CACHE_INITIALIZED = True
             return None
 
     @staticmethod
@@ -720,14 +749,73 @@ class TravelChatbot:
             merged[self._entry_identifier(entry)] = entry
         return list(merged.values())
 
+    def _is_specific_place_query(self, query: str, matched_data: List[Dict[str, Any]]) -> bool:
+        """Detect if user is asking about a specific place vs a category/type."""
+        if not matched_data:
+            return False
+        
+        normalized_query = query.lower()
+        
+        # Category/type indicators - if present, it's NOT a specific place query
+        category_keywords = [
+            "ร้านอาหาร", "ที่กิน", "อาหาร", "restaurant", "food",
+            "ที่พัก", "โรงแรม", "รีสอร์ท", "accommodation", "hotel",
+            "วัด", "temple", "สถานที่", "แหล่ง", "place",
+            "ตลาด", "market", "ทะเล", "sea", "beach",
+            "ชุมชน", "community", "museum", "พิพิธภัณฑ์",
+            "แนะนำ", "recommend", "suggest", "เที่ยว", "travel",
+            "visit", "ไปไหน", "where", "ดี", "good", "น่าสนใจ",
+            "interesting", "มีอะไร", "what", "บ้าง", "some"
+        ]
+        
+        if any(keyword in normalized_query for keyword in category_keywords):
+            # Check if it's asking for multiple or general suggestions
+            multiple_indicators = ["บ้าง", "มีอะไร", "แนะนำ", "หลาย", "several", "some", "list", "ไหน"]
+            if any(indicator in normalized_query for indicator in multiple_indicators):
+                return False
+        
+        # If query contains a specific place name that matches the top result exactly
+        if matched_data:
+            top_result = matched_data[0]
+            place_names = [
+                top_result.get("place_name"),
+                top_result.get("name"),
+                top_result.get("name_th"),
+                top_result.get("name_en")
+            ]
+            
+            for name in place_names:
+                if name:
+                    # Normalize and check for exact or strong match
+                    normalized_name = self._normalize_name_token(str(name))
+                    normalized_query_tokens = self._normalize_name_token(normalized_query)
+                    
+                    if normalized_name and normalized_query_tokens:
+                        # If the place name is substantially in the query (>60% overlap)
+                        if len(normalized_name) >= 3 and normalized_name in normalized_query_tokens:
+                            return True
+                        # Or if query is very short and matches
+                        if len(normalized_query.split()) <= 3 and normalized_name == normalized_query_tokens:
+                            return True
+        
+        return False
+
     def _trim_structured_results(
         self,
         entries: List[Dict[str, Any]],
         limit: Optional[int] = None,
+        is_specific_place: bool = False,
     ) -> List[Dict[str, Any]]:
         if not entries:
             return []
-        max_count = limit or self.display_limit or self.match_limit or 5
+        
+        # If asking about a specific place, return only 1 result
+        if is_specific_place:
+            max_count = 1
+        else:
+            # Category/general queries get 4-5 results
+            max_count = limit if limit is not None else (self.display_limit or 4)
+        
         trimmed: List[Dict[str, Any]] = []
         seen: set[str] = set()
         for entry in entries:
@@ -815,7 +903,7 @@ class TravelChatbot:
             parts.append("Knowledge scope: " + ", ".join(profile["knowledge_scope"]))
         return " | ".join(parts)
 
-    def _create_simple_response(self, context_data: List[Dict], language: str) -> str:
+    def _create_simple_response(self, context_data: List[Dict], language: str, is_specific_place: bool = False) -> str:
         if not context_data:
             return self._prompt_path(
                 language,
@@ -850,21 +938,29 @@ class TravelChatbot:
                 return str(items)
 
             if language == "th":
-                lines = [f"{idx}. {name}"]
+                # For specific place queries, show more detailed single result
+                if is_specific_place and len(context_data) == 1:
+                    lines = [f"✨ {name}"]
+                else:
+                    lines = [f"{idx}. {name}"]
                 if location:
-                    lines.append(f"   พื้นที่: {location}")
+                    lines.append(f"   📍 พื้นที่: {location}")
                 if description:
                     lines.append(f"   จุดเด่น: {description}")
                 if highlights:
                     lines.append(f"   ไฮไลต์: {join_highlights(highlights)}")
                 if best_time:
-                    lines.append(f"   เวลาแนะนำ: {best_time}")
+                    lines.append(f"   ⏰ เวลาแนะนำ: {best_time}")
                 if tips:
-                    lines.append(f"   เคล็ดลับ: {join_highlights(tips)}")
+                    lines.append(f"   💡 เคล็ดลับ: {join_highlights(tips)}")
             else:
-                lines = [f"{idx}. {name}"]
+                # For specific place queries, show more detailed single result
+                if is_specific_place and len(context_data) == 1:
+                    lines = [f"✨ {name}"]
+                else:
+                    lines = [f"{idx}. {name}"]
                 if location:
-                    lines.append(f"   Area: {location}")
+                    lines.append(f"   📍 Area: {location}")
                 if description:
                     lines.append(f"   Why visit: {description}")
                 if highlights:
@@ -909,7 +1005,10 @@ class TravelChatbot:
             remaining_note = ""
 
         body = "\n\n".join(summaries)
-        return f"{intro_template.format(count=len(context_data))}\n\n{body}{remaining_note}{outro}"
+        if is_specific_place and len(context_data) == 1:
+            return f"{intro_template}\n\n{body}{outro}"
+        else:
+            return f"{intro_template.format(count=len(context_data))}\n\n{body}{remaining_note}{outro}"
 
     def _prompt(self, key: str, language: str, *, default_th: str = "", default_en: str = "") -> str:
         return self._prompt_path(language, (key,), default_th=default_th, default_en=default_en)
@@ -1032,13 +1131,32 @@ class TravelChatbot:
         trimmed_query = user_message.strip()
         normalized_query = trimmed_query.lower()
         dedup_key = self._normalized_query_key(trimmed_query) if trimmed_query else ""
+        
+        # Check response cache first (global level for common queries)
+        global _RESPONSE_CACHE, _RESPONSE_CACHE_TIME
+        current_time = time.time()
+        if dedup_key in _RESPONSE_CACHE:
+            cache_age = current_time - _RESPONSE_CACHE_TIME.get(dedup_key, 0)
+            if cache_age < RESPONSE_CACHE_TTL_SECONDS:
+                return dict(_RESPONSE_CACHE[dedup_key])  # Return copy to avoid mutations
+            else:
+                # Remove expired cache
+                del _RESPONSE_CACHE[dedup_key]
+                _RESPONSE_CACHE_TIME.pop(dedup_key, None)
+        
+        # Check user-specific duplicate cache
         cached_payload = self._replay_duplicate_response(user_id, dedup_key)
         if cached_payload:
             return cached_payload
 
         def finalize_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             self._cache_response(user_id, dedup_key, payload)
+            # Also cache at global level for common queries
+            if dedup_key:
+                _RESPONSE_CACHE[dedup_key] = dict(payload)
+                _RESPONSE_CACHE_TIME[dedup_key] = time.time()
             return payload
+        
         greetings_th = ("สวัสดี", "หวัดดี", "ดีจ้า", "สวัสดีค่ะ", "สวัสดีครับ")
         greetings_en = ("hello", "hi", "hey", "greetings")
         if trimmed_query and any(word in normalized_query for word in greetings_th + greetings_en):
@@ -1069,8 +1187,17 @@ class TravelChatbot:
                 }
             })
 
-        analysis = self._interpret_query_keywords(user_message) if trimmed_query else {"keywords": [], "places": []}
-        matcher_signals = self._matcher_analysis(user_message)
+        # Parallelize keyword detection and matcher analysis for faster processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            analysis_future = executor.submit(
+                self._interpret_query_keywords,
+                user_message
+            ) if trimmed_query else None
+            matcher_future = executor.submit(self._matcher_analysis, user_message)
+            
+            analysis = analysis_future.result() if analysis_future else {"keywords": [], "places": []}
+            matcher_signals = matcher_future.result()
+        
         keyword_pool = self._merge_keywords(
             analysis.get("keywords") or [],
             analysis.get("places") or [],
@@ -1116,7 +1243,12 @@ class TravelChatbot:
         if trip_matches:
             matched_data = self._merge_structured_data(matched_data, trip_matches)
         
-        matched_data = self._trim_structured_results(matched_data)
+        # Detect if this is a specific place query vs category query
+        is_specific_place = self._is_specific_place_query(user_message, matched_data)
+        
+        # Trim results based on query type (1 for specific place, 4-5 for categories)
+        matched_data = self._trim_structured_results(matched_data, is_specific_place=is_specific_place)
+        
         preference_note = self._preference_context()
         character_note = self._character_context()
         includes_local_term = self._contains_local_reference(user_message)
@@ -1232,7 +1364,7 @@ class TravelChatbot:
                 
             except Exception as e:
                 print(f"[ERROR] GPT generation failed: {e}")
-                simple_response = self._create_simple_response(matched_data, language)
+                simple_response = self._create_simple_response(matched_data, language, is_specific_place=is_specific_place)
                 return finalize_response({
                     'response': simple_response,
                     'structured_data': matched_data,
@@ -1243,7 +1375,7 @@ class TravelChatbot:
                     'data_status': data_status
                 })
         else:
-            simple_response = self._create_simple_response(matched_data, language)
+            simple_response = self._create_simple_response(matched_data, language, is_specific_place=is_specific_place)
             return finalize_response({
                 'response': simple_response,
                 'structured_data': matched_data,
