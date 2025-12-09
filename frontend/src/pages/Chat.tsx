@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, Sparkles, AlertCircle, Mic, Square } from "lucide-react";
+import { Send, Sparkles, AlertCircle, Mic, Square, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
@@ -22,15 +22,6 @@ type StructuredPlace = {
   contact?: string;
 };
 
-type AssistantPayload = {
-  text: string;
-  structured_data?: StructuredPlace[];
-  createdAt?: string;
-  source?: string;
-  language?: string;
-  intent?: string;
-};
-
 interface Message {
   id: string;
   content: string;
@@ -40,8 +31,10 @@ interface Message {
   meta?: {
     source?: string;
     intent?: string;
+    intent_type?: string;
   };
   userMessage?: string;
+  isStreaming?: boolean;
 }
 
 import { getApiBase } from "@/lib/api";
@@ -49,10 +42,10 @@ import { getApiBase } from "@/lib/api";
 const API_BASE = getApiBase();
 
 const suggestedQuestions = [
-  "Plan a one-day trip",
-  "Recommend riverside cafés",
-  "Romantic places for couples",
-  "Best time to visit Amphawa",
+  "วัดบางกุ้งอยู่ที่ไหน",
+  "แนะนำร้านอาหารอร่อยๆ",
+  "ที่เที่ยวสำหรับคู่รัก",
+  "จัดทริปหนึ่งวัน",
 ];
 
 const Chat = () => {
@@ -65,7 +58,7 @@ const Chat = () => {
       id: "welcome",
       content: place
         ? `สวัสดีค่ะ! I see you're interested in ${place.nameTh} (${place.name}). I'd be happy to help you learn more about this place or plan your visit. What would you like to know?`
-        : "สวัสดีค่ะ! ฉันคือน้องปลาทู ผู้ช่วยประชาสัมพันธ์ การท่องเที่ยวจังหวัดสมุทรสงคราม ฉันช่วยคุณหาสถานที่ท่องเที่ยว, คาเฟ่, ร่านอาหาร, โรงแรม ให้คุณเอง",
+        : "สวัสดีค่ะ! ฉันคือน้องปลาทู ผู้ช่วยท่องเที่ยวสมุทรสงคราม พร้อมช่วยคุณหาสถานที่ท่องเที่ยว ร้านอาหาร และที่พัก 🐟✨",
       isUser: false,
       timestamp: new Date().toLocaleTimeString("th-TH", {
         hour: "2-digit",
@@ -79,10 +72,13 @@ const Chat = () => {
   const [isListening, setIsListening] = useState(false);
   const [voiceText, setVoiceText] = useState("");
   const [hasSpeechSupport, setHasSpeechSupport] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const voiceTextRef = useRef("");
   const pendingRequestRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -100,6 +96,8 @@ const Chat = () => {
 
     return () => {
       recognitionRef.current?.abort();
+      eventSourceRef.current?.close();
+      currentAudio?.pause();
     };
   }, []);
 
@@ -109,27 +107,66 @@ const Chat = () => {
       minute: "2-digit",
     });
 
-  const mapAssistant = (assistant: AssistantPayload, userMsg?: string): Message => {
-    return {
-      id: `${Date.now()}-assistant`,
-      content: assistant.text,
-      structuredData: assistant.structured_data,
-      isUser: false,
-      timestamp:
-        assistant.createdAt ||
-        new Date().toLocaleTimeString("th-TH", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      meta: {
-        source: assistant.source,
-        intent: assistant.intent,
-      },
-      userMessage: userMsg,
-    };
+  const playTextToSpeech = async (text: string) => {
+    try {
+      // Stop current audio if playing
+      if (currentAudio) {
+        currentAudio.pause();
+        setCurrentAudio(null);
+      }
+
+      setIsPlayingAudio(true);
+
+      const response = await fetch(`${API_BASE}/api/text-to-speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate speech");
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.audio) {
+        // Convert base64 to audio blob
+        const audioBlob = new Blob(
+          [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
+          { type: 'audio/mp3' }
+        );
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        const audio = new Audio(audioUrl);
+        audio.onended = () => {
+          setIsPlayingAudio(false);
+          setCurrentAudio(null);
+          URL.revokeObjectURL(audioUrl);
+        };
+        audio.onerror = () => {
+          setIsPlayingAudio(false);
+          setCurrentAudio(null);
+        };
+        
+        setCurrentAudio(audio);
+        await audio.play();
+      }
+    } catch (err) {
+      console.error("TTS error:", err);
+      setIsPlayingAudio(false);
+      setError("ไม่สามารถเล่นเสียงได้ในขณะนี้");
+    }
   };
 
-  const handleSend = async (text?: string) => {
+  const stopAudio = () => {
+    if (currentAudio) {
+      currentAudio.pause();
+      setCurrentAudio(null);
+      setIsPlayingAudio(false);
+    }
+  };
+
+  const handleSendWithStreaming = async (text?: string) => {
     const messageText = text || input;
     if (!messageText.trim()) return;
 
@@ -145,11 +182,22 @@ const Chat = () => {
     setIsTyping(true);
     setError(null);
 
+    // Create a placeholder for the assistant message
+    const assistantId = `${Date.now()}-assistant`;
+    const assistantMessage: Message = {
+      id: assistantId,
+      content: "",
+      isUser: false,
+      timestamp: createTimestamp(),
+      isStreaming: true,
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
     const controller = new AbortController();
     pendingRequestRef.current = controller;
 
     try {
-      const response = await fetch(`${API_BASE}/api/messages`, {
+      const response = await fetch(`${API_BASE}/api/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -160,25 +208,69 @@ const Chat = () => {
       });
 
       if (!response.ok) {
-        const body = await response.text();
-        throw new Error(body || "Unable to reach AI service");
+        throw new Error("Failed to connect to streaming API");
       }
 
-      const data = await response.json();
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let structuredData: StructuredPlace[] = [];
+      let intentType = "";
 
-      if (data?.assistant) {
-        setMessages((prev) => [...prev, mapAssistant(data.assistant, messageText)]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-fallback`,
-            content:
-              "ขออภัยค่ะ ระบบตอบกลับช้าชั่วคราว กรุณาลองใหม่อีกครั้งหรือถามคำถามอื่นดูนะคะ",
-            isUser: false,
-            timestamp: createTimestamp(),
-          },
-        ]);
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === "intent") {
+                intentType = data.intent_type;
+              } else if (data.type === "structured_data") {
+                structuredData = data.data;
+              } else if (data.type === "text") {
+                fullText += data.text;
+                // Update message in real-time
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantId
+                      ? { ...msg, content: fullText }
+                      : msg
+                  )
+                );
+              } else if (data.type === "done") {
+                // Finalize message
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantId
+                      ? {
+                          ...msg,
+                          content: fullText,
+                          structuredData,
+                          meta: {
+                            intent_type: intentType,
+                            source: "streaming",
+                          },
+                          isStreaming: false,
+                        }
+                      : msg
+                  )
+                );
+                // Auto-play TTS for final response
+                if (fullText) {
+                  playTextToSpeech(fullText);
+                }
+              } else if (data.type === "error") {
+                throw new Error(data.message);
+              }
+            }
+          }
+        }
       }
     } catch (err) {
       console.error(err);
@@ -187,14 +279,13 @@ const Chat = () => {
       } else {
         setError("ไม่สามารถเชื่อมต่อ AI ได้ กรุณาลองใหม่");
       }
+      // Remove streaming placeholder on error
+      setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
       setMessages((prev) => [
         ...prev,
         {
           id: `${Date.now()}-error`,
-          content:
-            (err as Error).name === "AbortError"
-              ? "ยกเลิกการส่งข้อความแล้ว"
-              : "ขออภัยค่ะ ตอนนี้เชื่อมต่อ AI ไม่ได้ กรุณาลองใหม่อีกครั้งในภายหลัง",
+          content: "ขออภัยค่ะ ระบบมีปัญหาชั่วคราว กรุณาลองใหม่อีกครั้ง",
           isUser: false,
           timestamp: createTimestamp(),
         },
@@ -208,7 +299,7 @@ const Chat = () => {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSendWithStreaming();
     }
   };
 
@@ -219,10 +310,12 @@ const Chat = () => {
   const cancelSend = () => {
     pendingRequestRef.current?.abort();
     pendingRequestRef.current = null;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     setIsTyping(false);
   };
 
-  const startListening = () => {
+  const startListening = async () => {
     if (typeof window === "undefined") return;
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -271,7 +364,7 @@ const Chat = () => {
       setIsListening(false);
       const textToSend = (voiceTextRef.current || finalTranscript).trim();
       if (textToSend) {
-        handleSend(textToSend);
+        handleSendWithStreaming(textToSend);
       } else {
         setError("ไม่ได้ยินเสียง หรือไม่มีข้อความส่ง กรุณาลองใหม่");
       }
@@ -284,6 +377,7 @@ const Chat = () => {
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
 
+      {/* Voice Listening Overlay */}
       {isListening && (
         <div className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm flex items-end md:items-center justify-center px-4 pb-10">
           <div className="w-full max-w-lg bg-gradient-to-br from-primary via-primary/80 to-primary-foreground text-primary-foreground rounded-3xl p-6 shadow-2xl border border-primary/40">
@@ -297,11 +391,11 @@ const Chat = () => {
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/70">
-                    NongPlatoo Voice
+                    NongPlaToo Voice
                   </p>
                   <p className="text-lg font-semibold">กำลังฟังอยู่...</p>
                   <p className="text-sm text-primary-foreground/80">
-                    พูดคำถามของคุณแล้วปล่อยมือ น้องปลาทูจะส่งให้อัตโนมัติ
+                    พูดคำถามของคุณ
                   </p>
                 </div>
               </div>
@@ -312,27 +406,24 @@ const Chat = () => {
                 className="bg-primary-foreground text-primary hover:bg-primary-foreground/90"
               >
                 <Square className="w-4 h-4" />
-                หยุดฟัง
+                หยุด
               </Button>
             </div>
 
             <div className="mt-5 bg-white/10 border border-white/20 rounded-2xl p-4 min-h-[92px]">
               <p className="text-sm text-primary-foreground/80">
-                {voiceText || "“สวัสดี น้องปลาทูช่วยอะไรดีคะ?”"}
+                {voiceText || "กำลังรอคำพูด..."}
               </p>
               <div className="mt-4 flex items-center gap-1">
                 <span className="w-1.5 h-6 bg-white/40 rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
                 <span className="w-1.5 h-9 bg-white/60 rounded-full animate-[pulse_1.2s_ease-in-out_infinite]" />
                 <span className="w-1.5 h-4 bg-white/30 rounded-full animate-[pulse_0.9s_ease-in-out_infinite]" />
                 <span className="w-1.5 h-7 bg-white/50 rounded-full animate-[pulse_1.1s_ease-in-out_infinite]" />
-                <span className="w-1.5 h-5 bg-white/30 rounded-full animate-[pulse_1.05s_ease-in-out_infinite]" />
               </div>
             </div>
           </div>
         </div>
       )}
-
-
 
       {/* Messages */}
       <main className="flex-1 overflow-y-auto pt-16">
@@ -360,7 +451,7 @@ const Chat = () => {
             {isTyping && (
               <div className="flex gap-3">
                 <div className="w-9 h-9 bg-secondary rounded-full flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-secondary-foreground" />
+                  <Sparkles className="w-5 h-5 text-secondary-foreground animate-pulse" />
                 </div>
                 <div className="bg-card shadow-soft border border-border rounded-2xl rounded-bl-sm px-4 py-3">
                   <div className="flex gap-1">
@@ -382,7 +473,7 @@ const Chat = () => {
         <div className="border-t border-border bg-muted/50">
           <div className="container mx-auto px-4 py-3 max-w-3xl">
             <p className="text-xs text-muted-foreground mb-2">
-              Suggested questions:
+              คำถามแนะนำ:
             </p>
             <div className="flex flex-wrap gap-2">
               {suggestedQuestions.map((question) => (
@@ -391,7 +482,7 @@ const Chat = () => {
                   variant="outline"
                   size="sm"
                   className="rounded-full text-xs"
-                  onClick={() => handleSend(question)}
+                  onClick={() => handleSendWithStreaming(question)}
                 >
                   {question}
                 </Button>
@@ -423,6 +514,17 @@ const Chat = () => {
               className="flex-1 h-12 bg-background rounded-xl"
               disabled={isTyping}
             />
+            {isPlayingAudio && (
+              <Button
+                type="button"
+                onClick={stopAudio}
+                variant="outline"
+                size="icon"
+                className="h-12 w-12 rounded-xl"
+              >
+                <VolumeX className="w-5 h-5" />
+              </Button>
+            )}
             {isTyping ? (
               <Button
                 type="button"
@@ -435,7 +537,7 @@ const Chat = () => {
               </Button>
             ) : (
               <Button
-                onClick={() => handleSend()}
+                onClick={() => handleSendWithStreaming()}
                 disabled={!input.trim()}
                 className="h-12 w-12 rounded-xl"
               >

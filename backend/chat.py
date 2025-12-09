@@ -144,6 +144,72 @@ class TravelChatbot:
         # Prioritize Thai if any Thai characters are present or if text is short
         return "th" if thai_chars > 0 else "en"
 
+    def _classify_intent(self, query: str) -> Dict[str, Any]:
+        """
+        Classify user intent as 'specific' (asking about a named place)
+        or 'general' (broad category or recommendation request).
+        Returns: {intent_type: 'specific'|'general', keywords: [...], clean_question: str}
+        """
+        clean_question = query.strip()
+        normalized = clean_question.lower()
+        
+        # Extract keywords from the query
+        extracted_keywords = []
+        
+        # Specific intent indicators - asking about a named place
+        specific_indicators = [
+            "อยู่ที่ไหน", "where is", "อยู่ตรงไหน", "ที่อยู่",
+            "เกี่ยวกับ", "about", "tell me about", "บอกเกี่ยวกับ",
+            "คือ", "คืออะไร", "what is", "เป็นอย่างไร",
+            "ไปยังไง", "how to get", "วิธีไป", "เดินทางไป"
+        ]
+        
+        # General intent indicators - asking for recommendations/categories
+        general_indicators = [
+            "แนะนำ", "recommend", "suggestion", "มีอะไร", "what",
+            "บ้าง", "some", "ไหนดี", "where should", "ควรไป",
+            "อยากไป", "want to visit", "หา", "find", "looking for",
+            "มี", "are there", "any", "list"
+        ]
+        
+        # Check if query mentions specific place names from database
+        specific_place_match = False
+        for entry in self.travel_data[:50]:  # Check first 50 entries for performance
+            place_names = [
+                entry.get("place_name"),
+                entry.get("name"),
+                entry.get("name_th"),
+                entry.get("name_en")
+            ]
+            for name in place_names:
+                if name and len(str(name)) >= 3:
+                    normalized_name = self._normalize_name_token(str(name))
+                    if normalized_name and normalized_name in self._normalize_name_token(normalized):
+                        specific_place_match = True
+                        extracted_keywords.append(str(name))
+                        break
+            if specific_place_match:
+                break
+        
+        # Determine intent type
+        has_specific_indicator = any(ind in normalized for ind in specific_indicators)
+        has_general_indicator = any(ind in normalized for ind in general_indicators)
+        
+        if specific_place_match or (has_specific_indicator and not has_general_indicator):
+            intent_type = "specific"
+        else:
+            intent_type = "general"
+        
+        # Auto-detect keywords if none found
+        if not extracted_keywords:
+            extracted_keywords = self._auto_detect_keywords(query, limit=3)
+        
+        return {
+            "intent_type": intent_type,
+            "keywords": extracted_keywords,
+            "clean_question": clean_question
+        }
+
     def _matcher_analysis(self, query: str) -> Dict[str, Any]:
         if not query.strip():
             return {"topic": None, "confidence": 0.0, "keywords": [], "is_local": False}
@@ -1187,18 +1253,24 @@ class TravelChatbot:
                 }
             })
 
+        # Step 2: INTENT CLASSIFICATION
+        intent_classification = self._classify_intent(user_message)
+        intent_type = intent_classification["intent_type"]
+        clean_question = intent_classification["clean_question"]
+        
         # Parallelize keyword detection and matcher analysis for faster processing
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             analysis_future = executor.submit(
                 self._interpret_query_keywords,
-                user_message
+                clean_question
             ) if trimmed_query else None
-            matcher_future = executor.submit(self._matcher_analysis, user_message)
+            matcher_future = executor.submit(self._matcher_analysis, clean_question)
             
             analysis = analysis_future.result() if analysis_future else {"keywords": [], "places": []}
             matcher_signals = matcher_future.result()
         
         keyword_pool = self._merge_keywords(
+            intent_classification.get("keywords") or [],
             analysis.get("keywords") or [],
             analysis.get("places") or [],
             matcher_signals.get("keywords") or [],
@@ -1288,8 +1360,9 @@ class TravelChatbot:
             not includes_local_term
             and self._mentions_other_province(user_message, keyword_pool, analysis.get("places", []))
         )
-        detected_intent = self._intent_from_topic(matcher_signals.get("topic"))
+        detected_intent = intent_type  # Use new intent classification (specific/general)
         data_status = {
+            'intent_type': intent_type,  # Add intent type to status
             'success': bool(matched_data),
             'message': (
                 f"Matched {len(matched_data)} entries" + 
@@ -1344,10 +1417,11 @@ class TravelChatbot:
         if self.gpt_service:
             try:
                 gpt_result = self.gpt_service.generate_response(
-                    user_query=user_message,
+                    user_query=clean_question,
                     context_data=matched_data,
                     data_type='travel',
                     intent=detected_intent,
+                    intent_type=intent_type,
                     data_status=data_status
                 )
 

@@ -232,6 +232,201 @@ def get_messages():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/messages/stream', methods=['POST'])
+def post_message_stream():
+    """Streaming endpoint for chat responses using Server-Sent Events."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user_message = data.get('text') or data.get('message') or ''
+        user_id = data.get('user_id', 'default')
+
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': 'Text is required'
+            }), 400
+
+        def generate():
+            """Generator function for SSE streaming."""
+            try:
+                # Import here to avoid circular dependencies
+                from backend.chat import TravelChatbot
+                
+                # Get or create chatbot instance
+                chatbot = TravelChatbot()
+                language = chatbot._detect_language(user_message)
+                
+                # Classify intent
+                intent_classification = chatbot._classify_intent(user_message)
+                
+                # Send intent classification first
+                yield "data: " + json.dumps({'type': 'intent', 'intent_type': intent_classification['intent_type'], 'keywords': intent_classification['keywords'][:3]}, ensure_ascii=False) + "\n\n"
+                
+                # Get matched data from database
+                matched_data = chatbot._match_travel_data(
+                    user_message,
+                    keywords=intent_classification.get('keywords'),
+                )
+                
+                # Send structured data
+                if matched_data:
+                    yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:3]}, ensure_ascii=False) + "\n\n"
+                
+                # Stream GPT response
+                if chatbot.gpt_service:
+                    for chunk in chatbot.gpt_service.generate_response_stream(
+                        user_query=intent_classification['clean_question'],
+                        context_data=matched_data,
+                        data_type='travel',
+                        intent=intent_classification['intent_type'],
+                        intent_type=intent_classification['intent_type'],
+                        data_status={
+                            'success': bool(matched_data),
+                            'data_available': bool(matched_data),
+                            'source': 'database',
+                        }
+                    ):
+                        if 'chunk' in chunk:
+                            yield "data: " + json.dumps({'type': 'text', 'text': chunk['chunk']}, ensure_ascii=False) + "\n\n"
+                        elif 'done' in chunk:
+                            yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
+                        elif 'error' in chunk:
+                            yield "data: " + json.dumps({'type': 'error', 'message': chunk['error']}, ensure_ascii=False) + "\n\n"
+                else:
+                    # Fallback to simple response
+                    simple_response = chatbot._create_simple_response(
+                        matched_data,
+                        language,
+                        is_specific_place=intent_classification['intent_type'] == 'specific'
+                    )
+                    yield "data: " + json.dumps({'type': 'text', 'text': simple_response}, ensure_ascii=False) + "\n\n"
+                    yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
+                    
+            except Exception as e:
+                logger.exception("Error in streaming generation")
+                yield "data: " + json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False) + "\n\n"
+
+        return Response(generate(), mimetype='text/event-stream')
+
+    except Exception as e:
+        app.logger.exception("Error in /api/messages/stream")
+        return jsonify({
+            'success': False,
+            'error': True,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/speech-to-text', methods=['POST'])
+def speech_to_text():
+    """Convert speech audio to text using OpenAI Whisper API."""
+    try:
+        # Check if audio file is in request
+        if 'audio' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No audio file provided'
+            }), 400
+        
+        audio_file = request.files['audio']
+        
+        # Check file size (limit to 25MB for Whisper API)
+        audio_file.seek(0, 2)  # Seek to end
+        file_size = audio_file.tell()
+        audio_file.seek(0)  # Reset to beginning
+        
+        if file_size > 25 * 1024 * 1024:
+            return jsonify({
+                'success': False,
+                'error': 'Audio file too large (max 25MB)'
+            }), 400
+        
+        # Use OpenAI Whisper API
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key:
+            return jsonify({
+                'success': False,
+                'error': 'OpenAI API key not configured'
+            }), 500
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Transcribe audio - convert FileStorage to file-like object
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(audio_file.filename, audio_file.stream, audio_file.content_type),
+            language="th"  # Default to Thai, can be auto-detected
+        )
+        
+        return jsonify({
+            'success': True,
+            'text': transcript.text,
+            'language': 'th'
+        })
+        
+    except Exception as e:
+        logger.exception("Error in speech-to-text")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/text-to-speech', methods=['POST'])
+def text_to_speech():
+    """Convert text to speech audio using OpenAI TTS API."""
+    try:
+        data = request.get_json(silent=True) or {}
+        text = data.get('text', '')
+        
+        if not text:
+            return jsonify({
+                'success': False,
+                'error': 'Text is required'
+            }), 400
+        
+        # Use OpenAI TTS API
+        from openai import OpenAI
+        import base64
+        
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key:
+            return jsonify({
+                'success': False,
+                'error': 'OpenAI API key not configured'
+            }), 500
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Generate speech
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice="nova",  # Female voice suitable for Thai
+            input=text,
+            speed=1.0
+        )
+        
+        # Convert to base64 for JSON response
+        audio_data = response.content
+        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+        
+        return jsonify({
+            'success': True,
+            'audio': audio_base64,
+            'format': 'mp3'
+        })
+        
+    except Exception as e:
+        logger.exception("Error in text-to-speech")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/messages', methods=['POST'])
 def post_message():
     try:

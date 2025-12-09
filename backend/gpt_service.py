@@ -57,6 +57,86 @@ class GPTService:
     # Public API
     # ------------------------------------------------------------------
 
+    def generate_response_stream(
+        self,
+        user_query: str,
+        context_data: List[Dict[str, Any]],
+        *,
+        data_type: str = "attractions",
+        intent: Optional[str] = None,
+        intent_type: Optional[str] = None,
+        data_status: Optional[Dict[str, Any]] = None,
+        system_override: Optional[str] = None,
+    ):
+        """Generate streaming response from OpenAI for gradual text output."""
+        language = self._detect_language(user_query)
+
+        if not self.client:
+            yield {"error": "OpenAI client not initialized"}
+            return
+
+        try:
+            data_context = self._format_context_data(context_data, data_type)
+            status_note = self._build_context_status_note(data_status, bool(context_data))
+            preference_note = self._build_preference_note()
+            search_instruction = self._build_search_instruction(language)
+            guardrail_note = self._context_guardrail(language, len(context_data))
+
+            user_parts = [f"User Query: {user_query}"]
+            if intent:
+                user_parts.append(f"Detected Intent: {intent}")
+            if intent_type:
+                user_parts.append(f"Intent Type: {intent_type} ({'specific place query' if intent_type == 'specific' else 'general recommendations'})")
+            if status_note:
+                user_parts.append(status_note)
+            if preference_note:
+                user_parts.append(preference_note)
+            if search_instruction:
+                user_parts.append(search_instruction)
+            if guardrail_note:
+                user_parts.append(guardrail_note)
+            user_parts.append(data_context)
+            user_message = "\\n\\n".join(part for part in user_parts if part)
+            if len(user_message) > 8000:
+                user_message = user_message[:8000]
+
+            # Create streaming chat completion
+            stream_response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_override or self._system_prompt(language)},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=self.temperature,
+                top_p=self.top_p,
+                max_tokens=self.max_completion_tokens,
+                timeout=self.request_timeout,
+                stream=True,  # Enable streaming
+            )
+
+            # Yield chunks as they arrive
+            for chunk in stream_response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield {
+                        "chunk": chunk.choices[0].delta.content,
+                        "language": language,
+                        "source": self.model_name
+                    }
+
+            # Send final metadata
+            yield {
+                "done": True,
+                "structured_data": context_data,
+                "language": language,
+                "source": self.model_name,
+                "intent": intent,
+                "intent_type": intent_type
+            }
+
+        except Exception as exc:
+            logger.error(f"Streaming generation failed: {exc}")
+            yield {"error": str(exc)}
+
     def generate_response(
         self,
         user_query: str,
@@ -64,8 +144,10 @@ class GPTService:
         *,
         data_type: str = "attractions",
         intent: Optional[str] = None,
+        intent_type: Optional[str] = None,
         data_status: Optional[Dict[str, Any]] = None,
         system_override: Optional[str] = None,
+        stream: bool = False,
     ) -> Dict[str, Any]:
         """Call OpenAI to produce a travel response given optional structured context."""
         language = self._detect_language(user_query)
