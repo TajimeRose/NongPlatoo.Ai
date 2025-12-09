@@ -117,39 +117,52 @@ const Chat = () => {
 
       setIsPlayingAudio(true);
 
-      const response = await fetch(`${API_BASE}/api/text-to-speech`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      // Try server-side TTS first (Google Cloud TTS with Thai voice)
+      try {
+        const response = await fetch(`${API_BASE}/api/text-to-speech`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            language: "th" // Specify Thai language for better pronunciation
+          }),
+        });
 
-      if (!response.ok) {
-        throw new Error("Failed to generate speech");
-      }
+        if (!response.ok) {
+          throw new Error("Failed to generate speech");
+        }
 
-      const data = await response.json();
-      
-      if (data.success && data.audio) {
-        // Convert base64 to audio blob
-        const audioBlob = new Blob(
-          [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
-          { type: 'audio/mp3' }
-        );
-        const audioUrl = URL.createObjectURL(audioBlob);
-        
-        const audio = new Audio(audioUrl);
-        audio.onended = () => {
-          setIsPlayingAudio(false);
-          setCurrentAudio(null);
-          URL.revokeObjectURL(audioUrl);
-        };
-        audio.onerror = () => {
-          setIsPlayingAudio(false);
-          setCurrentAudio(null);
-        };
-        
-        setCurrentAudio(audio);
-        await audio.play();
+        const data = await response.json();
+
+        if (data.success && data.audio) {
+          // Convert base64 to audio blob
+          const audioBlob = new Blob(
+            [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
+            { type: 'audio/mp3' }
+          );
+          const audioUrl = URL.createObjectURL(audioBlob);
+
+          const audio = new Audio(audioUrl);
+          audio.onended = () => {
+            setIsPlayingAudio(false);
+            setCurrentAudio(null);
+            URL.revokeObjectURL(audioUrl);
+          };
+          audio.onerror = () => {
+            setIsPlayingAudio(false);
+            setCurrentAudio(null);
+            // Fallback to browser TTS
+            playBrowserTTS(text);
+          };
+
+          setCurrentAudio(audio);
+          await audio.play();
+          return;
+        }
+      } catch (serverError) {
+        console.warn("Server TTS failed, using browser TTS:", serverError);
+        // Fallback to browser-based TTS
+        playBrowserTTS(text);
       }
     } catch (err) {
       console.error("TTS error:", err);
@@ -158,11 +171,50 @@ const Chat = () => {
     }
   };
 
+  const playBrowserTTS = (text: string) => {
+    // Use browser's Web Speech API as fallback
+    if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'th-TH'; // Thai language
+      utterance.rate = 1.3; // Faster speech
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      // Try to find a Thai voice
+      const voices = window.speechSynthesis.getVoices();
+      const thaiVoice = voices.find(voice => voice.lang.startsWith('th'));
+      if (thaiVoice) {
+        utterance.voice = thaiVoice;
+      }
+
+      utterance.onend = () => {
+        setIsPlayingAudio(false);
+      };
+
+      utterance.onerror = () => {
+        setIsPlayingAudio(false);
+        setError("ไม่สามารถเล่นเสียงได้");
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setIsPlayingAudio(false);
+      setError("เบราว์เซอร์ไม่รองรับการอ่านข้อความ");
+    }
+  };
+
   const stopAudio = () => {
     if (currentAudio) {
       currentAudio.pause();
       setCurrentAudio(null);
       setIsPlayingAudio(false);
+    }
+    // Also stop browser TTS if active
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
     }
   };
 
@@ -249,15 +301,15 @@ const Chat = () => {
                   prev.map((msg) =>
                     msg.id === assistantId
                       ? {
-                          ...msg,
-                          content: fullText,
-                          structuredData,
-                          meta: {
-                            intent_type: intentType,
-                            source: "streaming",
-                          },
-                          isStreaming: false,
-                        }
+                        ...msg,
+                        content: fullText,
+                        structuredData,
+                        meta: {
+                          intent_type: intentType,
+                          source: "streaming",
+                        },
+                        isStreaming: false,
+                      }
                       : msg
                   )
                 );

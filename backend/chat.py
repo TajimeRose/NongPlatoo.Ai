@@ -975,14 +975,14 @@ class TravelChatbot:
                 language,
                 ("simple_response", "no_data"),
                 default_th=(
-                    "สวัสดีค่ะ! ขออภัยที่ตอนนี้ระบบ AI กำลังมีปัญหาชั่วคราว "
-                    "แต่น้องปลาทูยังพร้อมให้ข้อมูลการท่องเที่ยวสมุทรสงครามให้คุณนะคะ "
-                    "ลองถามเกี่ยวกับสถานที่ท่องเที่ยว ร้านอาหาร หรือที่พักในสมุทรสงครามได้เลยค่ะ"
+                    "น้องปลาทูพร้อมให้ข้อมูลการท่องเที่ยวสมุทรสงครามให้คุณนะคะ "
+                    "ลองถามเกี่ยวกับสถานที่ท่องเที่ยว ร้านอาหาร หรือที่พักในสมุทรสงครามได้เลยค่ะ "
+                    "(ขออภัยที่ตอนนี้ยังไม่พบข้อมูลที่ตรงกับคำถามในฐานข้อมูล)"
                 ),
                 default_en=(
-                    "Hello! I apologize for the temporary AI system issue, but I'm still ready "
-                    "to provide tourism information about Samut Songkhram. Feel free to ask "
-                    "about attractions, restaurants, or accommodations!"
+                    "I'm ready to provide tourism information about Samut Songkhram. "
+                    "Feel free to ask about attractions, restaurants, or accommodations! "
+                    "(Sorry, no matching data found in the database right now)"
                 )
             )
 
@@ -1329,15 +1329,10 @@ class TravelChatbot:
         if matcher_signals.get("is_local"):
             includes_local_term = True
         
-        # Debug logging for fallback decision
-        print(f"[DEBUG] Fallback check - matched_data: {len(matched_data)}, includes_local_term: {includes_local_term}")
-        print(f"[DEBUG] Query: {user_message}")
-        print(f"[DEBUG] Keywords: {keyword_pool}")
-        
         # Google Search Fallback: If no data found in database, try web search
         if not matched_data and includes_local_term:
-            print(f"[INFO] No database results for query: {user_message}")
-            print("[INFO] Attempting Google search fallback...")
+            logger.info(f"No database results for query: {user_message}")
+            logger.info("Attempting Google search fallback...")
             
             try:
                 google_results = self._google_search_fallback(

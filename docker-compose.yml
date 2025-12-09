@@ -9,7 +9,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - FLASK_ENV=production
       - PORT=8000
-      - DATABASE_URL=postgresql://postgres:PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr@38.242.132.39:5432/postgres
+      - DATABASE_URL=${DATABASE_URL}
     restart: always
     depends_on:
       - db
@@ -17,9 +17,9 @@ services:
   db:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr
-      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:

@@ -24,6 +24,10 @@ googlemaps>=4.10.0
 # OpenAI GPT-4 Integration
 openai >= 1.35.0
 
+# Text-to-Speech Services
+gTTS>=2.5.0  # FREE Google Text-to-Speech (no API key needed, great for Thai)
+google-cloud-texttospeech>=2.14.0  # Premium option (requires API key)
+
 # Semantic Search (optional but enables FlexibleMatcher)
 numpy>=1.24.0
 scikit-learn>=1.3.0

@@ -12,6 +12,12 @@
 serviceAccountKey.json
 secrets.json
 
+# --- Logs with potentially sensitive data ---
+*.log
+logs/
+flask.log
+db_check.log
+
 # --- Python ---
 __pycache__/
 *.py[cod]
@@ -99,6 +105,16 @@ coverage/
 *.sublime-workspace
 *.sublime-project
 .DS_Store
+
+# --- Testing & Development Files ---
+test_*.py
+*_test.py
+tmp_*.py
+temp_*.py
+scratch_*.py
+debug_*.py
+
+# --- Miscellaneous ---
 Thumbs.db
 desktop.ini
 ehthumbs.db
