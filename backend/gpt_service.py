@@ -317,11 +317,13 @@ class GPTService:
         if language == "th":
             return (
                 "ให้ผสมผสานความรู้หรือการค้นหาของคุณกับข้อมูลยืนยันด้านล่างเกี่ยวกับการท่องเที่ยวสมุทรสงคราม "
-                "โดยยึดข้อมูลจากไฟล์เป็นหลัก และหากมีข้อมูลทั่วไปเพิ่มเติมให้ระบุให้ชัดเจน"
+                "โดยยึดข้อมูลจากไฟล์เป็นหลัก และหากมีข้อมูลทั่วไปเพิ่มเติมให้ระบุให้ชัดเจน\n"
+                "เขียนคำตอบให้ยาวขึ้นและรายละเอียดมากขึ้น รวมถึงข้อมูลเกี่ยวกับวิธีการเดินทาง เวลาเปิด ค่าเข้า ตัวอย่าง และคำแนะนำปฏิบัติที่เป็นประโยชน์"
             )
         return (
             "Combine any reliable knowledge you have with the verified Samut Songkhram dataset below, "
-            "favoring the dataset when conflicts arise and labelling additional insights as general knowledge."
+            "favoring the dataset when conflicts arise and labelling additional insights as general knowledge. "
+            "Write detailed and comprehensive responses including transportation, hours, fees, examples, and practical tips."
         )
 
     def _context_guardrail(self, language: str, context_count: int) -> str:
@@ -329,21 +331,24 @@ class GPTService:
             if language == "th":
                 return (
                     f"คุณมีข้อมูลยืนยันแล้ว {context_count} รายการจากฐานข้อมูลสมุทรสงคราม "
-                    "ให้อ้างอิงข้อมูลเหล่านี้เป็นหลัก จัดระเบียบคำแนะนำให้เกี่ยวข้องกับทุกจุด และหากต้องเพิ่มข้อมูลทั่วไปต้องระบุว่าเป็นข้อมูลเสริม"
+                    "ให้อ้างอิงข้อมูลเหล่านี้เป็นหลัก จัดระเบียบคำแนะนำให้เกี่ยวข้องกับทุกจุด "
+                    "ให้รายละเอียดเต็มเปี่ยมเกี่ยวกับสถานที่นั้นๆ วิธีเดินทาง เวลา ค่าใช้จ่าย และข้อมูลปฏิบัติสำคัญ "
+                    "และหากต้องเพิ่มข้อมูลทั่วไปต้องระบุว่าเป็นข้อมูลเสริม"
                 )
             return (
                 f"You have {context_count} verified Samut Songkhram entries. "
-                "Base recommendations on them, cover each entry clearly, and explicitly label any extra general-knowledge hints."
+                "Base recommendations on them, provide comprehensive details about each location including directions, hours, fees, and practical information, "
+                "cover each entry clearly, and explicitly label any extra general-knowledge hints."
             )
 
         if language == "th":
             return (
                 "ยังไม่มีข้อมูลยืนยันจากฐานข้อมูลให้ใช้อ้างอิง ให้แจ้งข้อจำกัดนี้กับผู้ใช้ "
-                "พร้อมตอบด้วยความรู้ทั่วไปที่เชื่อถือได้เท่านั้น และเชิญชวนให้ผู้ใช้ระบุรายละเอียดเพิ่มเติม"
+                "พร้อมตอบด้วยความรู้ทั่วไปที่เชื่อถือได้เท่านั้น ให้รายละเอียดและครอบคลุม และเชิญชวนให้ผู้ใช้ระบุรายละเอียดเพิ่มเติม"
             )
         return (
             "No verified dataset is available for this turn. Make the limitation explicit, "
-            "answer with trusted general knowledge only, and invite the user to share more specifics."
+            "answer with trusted general knowledge only with comprehensive details, and invite the user to share more specifics."
         )
 
     def _build_fallback_payload(
