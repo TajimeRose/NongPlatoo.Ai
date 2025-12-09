@@ -375,12 +375,65 @@ def speech_to_text():
         }), 500
 
 
+def clean_text_for_speech(text: str) -> str:
+    """Clean text by removing markdown and special formatting while preserving natural speech flow."""
+    import re
+    
+    # Remove markdown bold/italic markers while preserving the text
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic*
+    text = re.sub(r'__(.+?)__', r'\1', text)      # __bold__
+    text = re.sub(r'_(.+?)_', r'\1', text)        # _italic_
+    
+    # Remove markdown headers but keep the text with proper spacing
+    text = re.sub(r'^#+\s+(.+)$', r'\1. ', text, flags=re.MULTILINE)  # # Header -> Header.
+    
+    # Convert list markers to natural pauses
+    text = re.sub(r'^\s*[-*+]\s+(.+)$', r'\1, ', text, flags=re.MULTILINE)  # - item -> item,
+    text = re.sub(r'^\s*\d+\.\s+(.+)$', r'\1, ', text, flags=re.MULTILINE)  # 1. item -> item,
+    
+    # Remove emojis but add slight pause where they were
+    text = re.sub(r'[🏛️🛶🌲🚣🏖️🏔️🌆📍✨🎉🔥⭐✅❌⚠️💎🔑🌐🎯🚀📊🎨🎤🔊]+', ' ', text)
+    
+    # Remove URLs
+    text = re.sub(r'https?://\S+', '', text)
+    
+    # Remove parentheses but keep the content with commas for natural pauses
+    text = re.sub(r'\(([^)]+)\)', r', \1, ', text)
+    
+    # Convert newlines to natural sentence breaks
+    text = re.sub(r'\n\n+', '. ', text)  # Double newlines -> period + space
+    text = re.sub(r'\n', ' ', text)      # Single newlines -> space
+    
+    # Clean up multiple punctuation
+    text = re.sub(r'([.!?])\1+', r'\1', text)  # Remove duplicate punctuation
+    text = re.sub(r'\s*([.!?,])\s*', r'\1 ', text)  # Normalize spacing around punctuation
+    
+    # Remove extra commas at end of sentences
+    text = re.sub(r',\s*([.!?])', r'\1', text)
+    
+    # Normalize spaces - ensure single space between words
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Clean up spaces before punctuation
+    text = re.sub(r'\s+([.!?,])', r'\1', text)
+    
+    # Ensure sentences end properly for natural pauses
+    if text and not text[-1] in '.!?':
+        text += '.'
+    
+    text = text.strip()
+    
+    return text
+
+
 @app.route('/api/text-to-speech', methods=['POST'])
 def text_to_speech():
-    """Convert text to speech audio using OpenAI TTS API."""
+    """Convert text to speech audio using gTTS (free) or Google Cloud TTS for natural Thai voice."""
     try:
         data = request.get_json(silent=True) or {}
         text = data.get('text', '')
+        language = data.get('language', 'th')  # Default to Thai
         
         if not text:
             return jsonify({
@@ -388,37 +441,129 @@ def text_to_speech():
                 'error': 'Text is required'
             }), 400
         
-        # Use OpenAI TTS API
-        from openai import OpenAI
-        import base64
+        # Clean text from markdown and special characters
+        cleaned_text = clean_text_for_speech(text)
         
-        api_key = os.getenv("OPENAI_API_KEY")
-        
-        if not api_key:
+        if not cleaned_text:
             return jsonify({
                 'success': False,
-                'error': 'OpenAI API key not configured'
-            }), 500
+                'error': 'No speakable text after cleaning'
+            }), 400
         
-        client = OpenAI(api_key=api_key)
+        import base64
         
-        # Generate speech
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice="nova",  # Female voice suitable for Thai
-            input=text,
-            speed=1.0
-        )
+        # Option 1: Try gTTS first (FREE, no API key needed, great for Thai)
+        try:
+            from gtts import gTTS
+            import io
+            
+            # Auto-detect language if not specified
+            if language == 'th' or any('\u0e00' <= c <= '\u0e7f' for c in cleaned_text):
+                tts_lang = 'th'
+            else:
+                tts_lang = 'en'
+            
+            # Generate speech with gTTS using cleaned text
+            tts = gTTS(text=cleaned_text, lang=tts_lang, slow=False)
+            
+            # Save to BytesIO
+            audio_io = io.BytesIO()
+            tts.write_to_fp(audio_io)
+            audio_io.seek(0)
+            
+            # Convert to base64
+            audio_base64 = base64.b64encode(audio_io.read()).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'gtts-free'
+            })
+            
+        except ImportError:
+            logger.info("gTTS not available, trying Google Cloud TTS")
+        except Exception as gtts_error:
+            logger.warning(f"gTTS failed: {gtts_error}, trying Google Cloud TTS")
         
-        # Convert to base64 for JSON response
-        audio_data = response.content
-        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-        
-        return jsonify({
-            'success': True,
-            'audio': audio_base64,
-            'format': 'mp3'
-        })
+        # Option 2: Try Google Cloud TTS (best quality, requires API key)
+        try:
+            from google.cloud import texttospeech
+            
+            client = texttospeech.TextToSpeechClient()
+            
+            synthesis_input = texttospeech.SynthesisInput(text=cleaned_text)
+            
+            # Configure voice - use Thai female voice for natural pronunciation
+            if language == 'th' or any(ord(c) >= 0x0e00 and ord(c) <= 0x0e7f for c in cleaned_text):
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="th-TH",
+                    name="th-TH-Standard-A",  # Female voice
+                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+                )
+            else:
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-US",
+                    name="en-US-Neural2-F",
+                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+                )
+            
+            # Configure audio output
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=1.3,
+                pitch=0.0
+            )
+            
+            # Generate speech
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            
+            # Convert to base64 for JSON response
+            audio_base64 = base64.b64encode(response.audio_content).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'google-cloud-tts'
+            })
+            
+        except Exception as google_error:
+            logger.warning(f"Google Cloud TTS failed: {google_error}, falling back to OpenAI")
+            
+            # Option 3: Fallback to OpenAI TTS
+            from openai import OpenAI
+            
+            api_key = os.getenv("OPENAI_API_KEY")
+            
+            if not api_key:
+                return jsonify({
+                    'success': False,
+                    'error': 'No TTS service available. Please install gTTS: pip install gTTS'
+                }), 500
+            
+            client = OpenAI(api_key=api_key)
+            
+            # Generate speech with OpenAI using cleaned text
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice="nova",
+                input=cleaned_text,
+                speed=1.25  # Faster speech for quicker playback
+            )
+            
+            audio_base64 = base64.b64encode(response.content).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'openai-tts'
+            })
         
     except Exception as e:
         logger.exception("Error in text-to-speech")
@@ -731,29 +876,6 @@ def health_check():
             'timestamp': datetime.datetime.now().isoformat(),
             'error': str(e)
         }), 500
-
-@app.route('/debug/db-info')
-def db_info():
-    """Debug endpoint showing database configuration (remove in production!)"""
-    try:
-        db_url = os.getenv("DATABASE_URL")
-        if db_url:
-            # Mask password for security
-            masked_url = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
-        else:
-            masked_url = "Not set"
-        
-        return jsonify({
-            'database_url': masked_url,
-            'postgres_host': os.getenv('POSTGRES_HOST', 'not set'),
-            'postgres_port': os.getenv('POSTGRES_PORT', 'not set'),
-            'postgres_db': os.getenv('POSTGRES_DB', 'not set'),
-            'postgres_user': os.getenv('POSTGRES_USER', 'not set'),
-            'environment': os.getenv('ENVIRONMENT', 'development'),
-            'note': 'This endpoint should be disabled in production'
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):

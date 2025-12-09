@@ -272,12 +272,12 @@ def get_db_url() -> str:
 
         return base
 
-    # Final fallback
+    # Final fallback for local development only
     print(
         "[WARN] DATABASE_URL is not set and POSTGRES_* vars not found; "
         "falling back to default postgres URL"
     )
-    return "postgresql://postgres:password@localhost:5432/worldjourney"
+    return "postgresql://postgres:YOUR_LOCAL_PASSWORD@localhost:5432/worldjourney"
 
 
 _ENGINE: Engine | None = None
