@@ -64,13 +64,10 @@ class DatabaseService:
     def get_all_destinations(self) -> List[Dict[str, Any]]:
         with self.session() as session:
             # Get from places table only
-            places_result = session.execute(select(Place).order_by(Place.rating.desc().nullslast()))
+            places_result = session.execute(select(Place).order_by(Place.name.asc()))
             places = places_result.scalars().all()
             
             all_destinations = [self._place_to_dict(place) for place in places]
-            
-            # Sort by rating
-            all_destinations.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
             return all_destinations
 
     def search_destinations(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -87,7 +84,7 @@ class DatabaseService:
                         Place.category.ilike(pattern),
                     )
                 )
-                .order_by(Place.rating.desc().nullslast())
+                .order_by(Place.name.asc())
             )
             
             places_result = session.execute(places_stmt)
@@ -95,8 +92,6 @@ class DatabaseService:
             
             results = [self._place_to_dict(place) for place in places]
             
-            # Sort by rating and limit
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
             return results[:limit]
 
     def search_attractions_only(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -128,7 +123,7 @@ class DatabaseService:
             if is_generic_query:
                 stmt = (
                     select(Place)
-                    .order_by(Place.rating.desc().nullslast())
+                    .order_by(Place.name.asc())
                     .limit(limit)
                 )
             else:
@@ -144,7 +139,7 @@ class DatabaseService:
                             Place.category.ilike(pattern),
                         )
                     )
-                    .order_by(Place.rating.desc().nullslast())
+                    .order_by(Place.name.asc())
                     .limit(limit)
                 )
             
@@ -169,20 +164,18 @@ class DatabaseService:
     def get_destinations_by_type(self, dest_type: str) -> List[Dict[str, Any]]:
         pattern = f"%{dest_type}%"
         with self.session() as session:
-            # Search places table by category and tags
-            from sqlalchemy import cast, Text
+            # Search places table by category and attraction_type
             places_rows = session.execute(
                 select(Place).where(
                     or_(
                         Place.category.ilike(pattern),
-                        cast(Place.tags, Text).ilike(pattern)
+                        Place.attraction_type.ilike(pattern)
                     )
-                ).order_by(Place.rating.desc().nullslast())
+                ).order_by(Place.name.asc())
             )
             places = places_rows.scalars().all()
             
             results = [self._place_to_dict(place) for place in places]
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
             return results
 
     # ------------------------------------------------------------------
