@@ -4,7 +4,7 @@
     "/": 56,
     "/chat": 42,
     "/auth": 4,
-    "/places": 27,
-    "/places/:id": 7
+    "/places": 29,
+    "/places/:id": 8
   }
 }
