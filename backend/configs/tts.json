@@ -3,7 +3,7 @@
     "google_cloud": {
         "language_code": "th-TH",
         "voice_name": "th-TH-Standard-A",
-        "speaking_rate": 2.0,
+        "speaking_rate": 1.5,
         "pitch": 0.0,
         "audio_encoding": "MP3",
         "alternative_voices": [
@@ -22,7 +22,7 @@
     "openai_fallback": {
         "model": "tts-1",
         "voice": "nova",
-        "speed": 2.0
+        "speed": 1.4
     },
     "settings": {
         "auto_detect_language": true,

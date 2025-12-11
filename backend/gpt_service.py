@@ -30,15 +30,15 @@ class GPTService:
         self.answer_prompts = PROMPT_REPO.get_prompt("chatbot/answer", default={})
         self.search_prompts = PROMPT_REPO.get_prompt("chatbot/search", default={})
         self.preferences = PROMPT_REPO.get_preferences()
-        self.temperature = chat_params.get("temperature", 0.7)
-        self.max_completion_tokens = chat_params.get("max_completion_tokens", 800)
+        self.temperature = chat_params.get("temperature", 0.8)
+        self.max_completion_tokens = chat_params.get("max_completion_tokens", 500)
         self.top_p = chat_params.get("top_p", 1.0)
         self.presence_penalty = chat_params.get("presence_penalty", 0.1)
         self.frequency_penalty = chat_params.get("frequency_penalty", 0.1)
         self.greeting_temperature = greeting_params.get("temperature", 0.8)
         self.greeting_max_tokens = greeting_params.get("max_completion_tokens", 150)
         self.greeting_top_p = greeting_params.get("top_p", 1.0)
-        self.request_timeout = chat_params.get("timeout_seconds", 15)
+        self.request_timeout = chat_params.get("timeout_seconds", 60)
         self.greeting_timeout = greeting_params.get("timeout_seconds", self.request_timeout)
 
         if not self.api_key:
@@ -47,8 +47,9 @@ class GPTService:
             return
 
         try:
-            self.client = OpenAI(api_key=self.api_key, max_retries=1)
-            print(f"[OK] OpenAI client init (model: {self.model_name})")
+            # Increase max_retries to handle transient errors better
+            self.client = OpenAI(api_key=self.api_key, max_retries=2, timeout=self.request_timeout)
+            print(f"[OK] OpenAI client init (model: {self.model_name}, timeout: {self.request_timeout}s)")
         except Exception as exc:
             print(f"[ERROR] OpenAI client init failed: {exc}")
             self.client = None
@@ -67,6 +68,7 @@ class GPTService:
         intent_type: Optional[str] = None,
         data_status: Optional[Dict[str, Any]] = None,
         system_override: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ):
         """Generate streaming response from OpenAI for gradual text output."""
         language = self._detect_language(user_query)
@@ -100,13 +102,21 @@ class GPTService:
             if len(user_message) > 8000:
                 user_message = user_message[:8000]
 
-            # Create streaming chat completion
+            # Build messages array with conversation history
+            messages = [{"role": "system", "content": system_override or self._system_prompt(language)}]
+            
+            # Add conversation history if provided (last 5 exchanges to stay within token limits)
+            if conversation_history:
+                messages.extend(conversation_history[-10:])
+            
+            # Add current user message
+            messages.append({"role": "user", "content": user_message})
+            
+            # Create streaming chat completion with extended timeout
+            logger.info(f"[GPT] Starting streaming request with timeout={self.request_timeout}s, history_messages={len(messages)-2}")
             stream_response = self.client.chat.completions.create(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_override or self._system_prompt(language)},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_tokens=self.max_completion_tokens,
@@ -115,13 +125,17 @@ class GPTService:
             )
 
             # Yield chunks as they arrive
+            chunk_count = 0
             for chunk in stream_response:
                 if chunk.choices and chunk.choices[0].delta.content:
+                    chunk_count += 1
                     yield {
                         "chunk": chunk.choices[0].delta.content,
                         "language": language,
                         "source": self.model_name
                     }
+            
+            logger.info(f"[GPT] Streaming completed successfully ({chunk_count} chunks)")
 
             # Send final metadata
             yield {
@@ -133,8 +147,14 @@ class GPTService:
                 "intent_type": intent_type
             }
 
+        except TimeoutError as exc:
+            logger.error(f"Streaming timeout after {self.request_timeout}s: {exc}")
+            yield {
+                "error": f"Request timeout after {self.request_timeout} seconds. Please try again.",
+                "timeout": True
+            }
         except Exception as exc:
-            logger.error(f"Streaming generation failed: {exc}")
+            logger.error(f"Streaming generation failed: {exc}", exc_info=True)
             yield {"error": str(exc)}
 
     def generate_response(
@@ -148,6 +168,7 @@ class GPTService:
         data_status: Optional[Dict[str, Any]] = None,
         system_override: Optional[str] = None,
         stream: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """Call OpenAI to produce a travel response given optional structured context."""
         language = self._detect_language(user_query)
@@ -178,12 +199,19 @@ class GPTService:
             if len(user_message) > 8000:
                 user_message = user_message[:8000]
 
+            # Build messages array with conversation history
+            messages = [{"role": "system", "content": system_override or self._system_prompt(language)}]
+            
+            # Add conversation history if provided (last 5 exchanges)
+            if conversation_history:
+                messages.extend(conversation_history[-10:])
+            
+            # Add current user message
+            messages.append({"role": "user", "content": user_message})
+            
             response = self._create_chat_completion(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_override or self._system_prompt(language)},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_completion_tokens=self.max_completion_tokens,  # จะถูกแปลงเป็น max_tokens ใน helper
@@ -258,7 +286,7 @@ class GPTService:
         # --------------------------------------------------
 
         # Ensure calls do not hang indefinitely
-        kwargs.setdefault("timeout", 15)
+        kwargs.setdefault("timeout", 60)
         logger.debug(f"[GPT] chat.completions.create payload keys={list(kwargs.keys())}")
 
         # ถ้ามี error ให้โยนออกไปเลย แล้วไปจับในชั้นบน (generate_response / greeting)
