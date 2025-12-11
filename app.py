@@ -223,10 +223,57 @@ def visits():
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages():
+    """Get conversation history for a user"""
     try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        user_id = request.args.get('user_id', 'default')
+        limit = int(request.args.get('limit', 20))
+        
+        memory = get_conversation_memory()
+        history = memory.get_history(user_id, limit=limit)
+        
         return jsonify({
             'success': True,
-            'messages': []
+            'messages': history,
+            'count': len(history)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/messages/clear', methods=['POST'])
+def clear_messages():
+    """Clear conversation history for a user"""
+    try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('user_id', 'default')
+        
+        memory = get_conversation_memory()
+        memory.clear_history(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Conversation history cleared'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/memory/stats', methods=['GET'])
+def get_memory_stats():
+    """Get conversation memory statistics"""
+    try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        memory = get_conversation_memory()
+        stats = memory.get_stats()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -252,10 +299,17 @@ def post_message_stream():
             try:
                 # Import here to avoid circular dependencies
                 from backend.chat import TravelChatbot
+                from backend.conversation_memory import get_conversation_memory
+                
+                # Get conversation memory
+                memory = get_conversation_memory()
                 
                 # Get or create chatbot instance
                 chatbot = TravelChatbot()
                 language = chatbot._detect_language(user_message)
+                
+                # Get conversation history for this user
+                conversation_history = memory.get_history(user_id)
                 
                 # Classify intent
                 intent_classification = chatbot._classify_intent(user_message)
@@ -273,6 +327,9 @@ def post_message_stream():
                 if matched_data:
                     yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:3]}, ensure_ascii=False) + "\n\n"
                 
+                # Store full assistant response
+                assistant_response = ""
+                
                 # Stream GPT response
                 if chatbot.gpt_service:
                     for chunk in chatbot.gpt_service.generate_response_stream(
@@ -285,11 +342,17 @@ def post_message_stream():
                             'success': bool(matched_data),
                             'data_available': bool(matched_data),
                             'source': 'database',
-                        }
+                        },
+                        conversation_history=conversation_history
                     ):
                         if 'chunk' in chunk:
+                            assistant_response += chunk['chunk']
                             yield "data: " + json.dumps({'type': 'text', 'text': chunk['chunk']}, ensure_ascii=False) + "\n\n"
                         elif 'done' in chunk:
+                            # Save conversation to memory
+                            memory.add_message(user_id, "user", user_message)
+                            memory.add_message(user_id, "assistant", assistant_response)
+                            
                             yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
                         elif 'error' in chunk:
                             yield "data: " + json.dumps({'type': 'error', 'message': chunk['error']}, ensure_ascii=False) + "\n\n"
@@ -300,6 +363,11 @@ def post_message_stream():
                         language,
                         is_specific_place=intent_classification['intent_type'] == 'specific'
                     )
+                    
+                    # Save conversation to memory
+                    memory.add_message(user_id, "user", user_message)
+                    memory.add_message(user_id, "assistant", simple_response)
+                    
                     yield "data: " + json.dumps({'type': 'text', 'text': simple_response}, ensure_ascii=False) + "\n\n"
                     yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
                     
@@ -511,7 +579,7 @@ def text_to_speech():
             # Configure audio output
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=1.3,
+                speaking_rate=1.5,  # Faster speech - average human speed
                 pitch=0.0
             )
             
@@ -553,7 +621,7 @@ def text_to_speech():
                 model="tts-1",
                 voice="nova",
                 input=cleaned_text,
-                speed=1.25  # Faster speech for quicker playback
+                speed=1.4  # Faster speech - average human speed
             )
             
             audio_base64 = base64.b64encode(response.content).decode('utf-8')

@@ -5,12 +5,24 @@
 .env.development.local
 .env.test.local
 .env.production.local
+backend/.env
+backend/.env.local
+backend/.env.*.local
 *.pem
 *.p12
 *.key
+*.pfx
+*.crt
 *_private_key*
+*_secret*
 serviceAccountKey.json
 secrets.json
+firebase-key.json
+google-*.json
+aws-credentials.json
+.aws/
+.credentials/
+credentials/
 
 # --- Logs with potentially sensitive data ---
 *.log
