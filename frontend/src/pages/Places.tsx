@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
 import { Search, Filter, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,31 +6,22 @@ import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
 import PlaceCard from "@/components/PlaceCard";
 import { places, filterPlaces } from "@/data/places";
-
-const districts = [
-  { value: "amphawa", label: "อัมพวา", labelEn: "Amphawa" },
-  { value: "mueang", label: "เมือง", labelEn: "Mueang" },
-  { value: "bang-khonthi", label: "บางคนที", labelEn: "Bang Khonthi" },
-];
-
-const categories = [
-  { value: "market", label: "ตลาด", labelEn: "Market" },
-  { value: "temple", label: "วัด", labelEn: "Temple" },
-  { value: "cafe", label: "คาเฟ่", labelEn: "Café" },
-  { value: "homestay", label: "โฮมสเตย์", labelEn: "Homestay" },
-  { value: "photo-spot", label: "จุดถ่ายรูป", labelEn: "Photo Spot" },
-];
+import { usePlaceFilters } from "@/hooks/usePlaceFilters";
+import { DISTRICTS, CATEGORIES, WATERMARK_CONFIG } from "@/data/placesConstants";
 
 const Places = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [search, setSearch] = useState("");
-  const [selectedDistrict, setSelectedDistrict] = useState<string>(
-    searchParams.get("district") || ""
-  );
-  const [selectedCategory, setSelectedCategory] = useState<string>(
-    searchParams.get("category") || ""
-  );
   const [showFilters, setShowFilters] = useState(false);
+
+  const {
+    search,
+    selectedDistrict,
+    selectedCategory,
+    setSearch,
+    handleDistrictChange,
+    handleCategoryChange,
+    clearFilters,
+    hasActiveFilters,
+  } = usePlaceFilters();
 
   const filteredPlaces = useMemo(() => {
     return filterPlaces(
@@ -41,37 +31,20 @@ const Places = () => {
     );
   }, [selectedDistrict, selectedCategory, search]);
 
-  const handleDistrictChange = (district: string) => {
-    const newDistrict = selectedDistrict === district ? "" : district;
-    setSelectedDistrict(newDistrict);
-    updateSearchParams(newDistrict, selectedCategory);
-  };
-
-  const handleCategoryChange = (category: string) => {
-    const newCategory = selectedCategory === category ? "" : category;
-    setSelectedCategory(newCategory);
-    updateSearchParams(selectedDistrict, newCategory);
-  };
-
-  const updateSearchParams = (district: string, category: string) => {
-    const params = new URLSearchParams();
-    if (district) params.set("district", district);
-    if (category) params.set("category", category);
-    setSearchParams(params);
-  };
-
-  const clearFilters = () => {
-    setSelectedDistrict("");
-    setSelectedCategory("");
-    setSearch("");
-    setSearchParams(new URLSearchParams());
-  };
-
-  const hasActiveFilters = selectedDistrict || selectedCategory || search;
-
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
+
+      {/* Work in Progress Watermark - Top Layer */}
+      <div className={WATERMARK_CONFIG.position}>
+        <div className="bg-amber-400 dark:bg-amber-600 text-amber-900 dark:text-amber-50 px-4 py-2 rounded-lg shadow-lg border-2 border-amber-500 dark:border-amber-400 rotate-12 font-bold text-sm flex items-center gap-2">
+          <span className="text-lg">{WATERMARK_CONFIG.icon}</span>
+          <div>
+            <div>{WATERMARK_CONFIG.text.main}</div>
+            <div className="text-xs">{WATERMARK_CONFIG.text.sub}</div>
+          </div>
+        </div>
+      </div>
 
       {/* Header */}
       <header className="pt-24 pb-8 bg-gradient-sky">
@@ -130,9 +103,8 @@ const Places = () => {
 
           {/* Filters */}
           <div
-            className={`mt-4 space-y-4 ${
-              showFilters ? "block" : "hidden md:block"
-            }`}
+            className={`mt-4 space-y-4 ${showFilters ? "block" : "hidden md:block"
+              }`}
           >
             {/* District Filter */}
             <div>
@@ -140,7 +112,7 @@ const Places = () => {
                 อำเภอ (District)
               </p>
               <div className="flex flex-wrap gap-2">
-                {districts.map((district) => (
+                {DISTRICTS.map((district) => (
                   <Button
                     key={district.value}
                     variant={
@@ -165,7 +137,7 @@ const Places = () => {
                 ประเภท (Category)
               </p>
               <div className="flex flex-wrap gap-2">
-                {categories.map((category) => (
+                {CATEGORIES.map((category) => (
                   <Button
                     key={category.value}
                     variant={
@@ -208,9 +180,8 @@ const Places = () => {
                   rating={place.rating}
                   tags={place.tags}
                   isOpen={place.isOpen}
-                  className={`animate-slide-up animation-delay-${
-                    (index % 3) * 100
-                  }`}
+                  className={`animate-slide-up animation-delay-${(index % 3) * 100
+                    }`}
                 />
               ))}
             </div>

@@ -13,8 +13,10 @@ This module provides:
    - get_db()
    - init_db()
 
-3. High-level utilities:
-   - search_places(keyword, limit) → domain-specific search over places table
+3. High-level utilities for place search (all use SQL-level filtering):
+   - search_places(keyword, limit, attraction_type=None) → search with optional attraction_type filter
+   - search_main_attractions(keyword, limit) → ONLY primary tourist attractions
+   - get_attractions_by_type(attraction_type, limit) → all places of a specific type
 
 4. Generic database utilities (work with ANY table in the database):
    - list_tables()                      → list all table names
@@ -53,6 +55,8 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
+
+from .constants import DEFAULT_SEARCH_LIMIT, MAX_ATTRACTIONS_LIMIT
 
 if load_dotenv:
     # Automatically pull DATABASE_URL, OPENAI_API_KEY, etc. from .env files.
@@ -336,11 +340,27 @@ def get_db() -> Generator[Session, None, None]:
 # ---------------------------------------------------------------------------
 
 
-def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
+def search_places(
+    keyword: str, 
+    limit: int = DEFAULT_SEARCH_LIMIT, 
+    attraction_type: str | None = None
+) -> List[Dict[str, object]]:
     """
-    Search both ``places`` and ``tourist_places`` tables for records
-    containing ``keyword``.
+    Search ``places`` table for records containing ``keyword``.
+    
+    Optionally filter by attraction_type at SQL level.
+    Classification is handled ONLY at database level - the AI never reclassifies places.
 
+    Args:
+        keyword: Search term to match against name, category, address, etc.
+        limit: Maximum number of results to return
+        attraction_type: Optional filter - if provided, ONLY return places with this exact attraction_type
+                        Valid values: 'main_attraction', 'secondary_attraction', 'market', 'activity', 
+                        'restaurant', 'cafe', etc.
+
+    Returns:
+        List of place dictionaries with database-classified attraction_type
+        
     If any database error occurs, log it and return an empty list so that
     the chatbot can still answer using pure GPT instead of crashing the API.
     """
@@ -349,19 +369,25 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
         session_factory = get_session_factory()
         kw = f"%{keyword}%"
 
+        conditions = [
+            or_(
+                Place.name.ilike(kw),
+                Place.category.ilike(kw),
+                Place.address.ilike(kw),
+                Place.description.ilike(kw),
+                Place.attraction_type.ilike(kw),
+                Place.opening_hours.ilike(kw),
+                Place.price_range.ilike(kw),
+            )
+        ]
+        
+        # Add attraction_type filter if specified
+        if attraction_type:
+            conditions.append(Place.attraction_type == attraction_type)
+
         places_stmt = (
             select(Place)
-            .where(
-                or_(
-                    Place.name.ilike(kw),
-                    Place.category.ilike(kw),
-                    Place.address.ilike(kw),
-                    Place.description.ilike(kw),
-                    Place.attraction_type.ilike(kw),
-                    Place.opening_hours.ilike(kw),
-                    Place.price_range.ilike(kw),
-                )
-            )
+            .where(*conditions)
             .order_by(Place.name.asc())
             .limit(limit)
         )
@@ -374,6 +400,67 @@ def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
 
     except SQLAlchemyError as e:
         print(f"[WARN] search_places DB error: {e}")
+        return []
+
+
+def search_main_attractions(keyword: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[Dict[str, object]]:
+    """
+    Search for PRIMARY tourist attractions (attractions with attraction_type = 'main_attraction').
+    
+    This function is specifically for queries like "สถานที่ท่องเที่ยว" or "ที่เที่ยวหลัก"
+    where the user wants to see main attractions only.
+    
+    Filtering is done ENTIRELY at SQL level - results are already classified by the database.
+    The AI should NOT attempt to reclassify or filter results further.
+    
+    Args:
+        keyword: Search term to match against place attributes
+        limit: Maximum number of results (primary attractions only)
+    
+    Returns:
+        List of place dictionaries filtered to ONLY main_attraction types
+        
+    If no main attractions are found, returns empty list - AI should explicitly 
+    state "no primary attractions found for [keyword]"
+    """
+    return search_places(keyword, limit=limit, attraction_type="main_attraction")
+
+
+def get_attractions_by_type(attraction_type: str, limit: int = MAX_ATTRACTIONS_LIMIT) -> List[Dict[str, object]]:
+    """
+    Retrieve ALL places with a specific attraction_type.
+    
+    Useful for browsing by category (e.g., "show me all markets" or "list all restaurants").
+    Database-level filtering only - no AI reclassification.
+    
+    Args:
+        attraction_type: The classification to filter by 
+                        ('main_attraction', 'secondary_attraction', 'market', 'activity', 
+                         'restaurant', 'cafe', etc.)
+        limit: Maximum number of results
+    
+    Returns:
+        List of all places with the specified attraction_type
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        
+        places_stmt = (
+            select(Place)
+            .where(Place.attraction_type == attraction_type)
+            .order_by(Place.name.asc())
+            .limit(limit)
+        )
+
+        with session_factory() as session:
+            places_rows: Iterable[Place] = session.scalars(places_stmt)
+            results: List[Dict[str, object]] = [place.to_dict() for place in places_rows]
+
+        return results[:limit]
+
+    except SQLAlchemyError as e:
+        print(f"[WARN] get_attractions_by_type DB error: {e}")
         return []
 
 

@@ -17,6 +17,48 @@
       "en": "Try asking about popular Samut Songkhram attractions like Wat Bang Kung, Amphawa Floating Market, or Khlong Khone Mangrove Forest. (No matching data found in database right now)"
     }
   },
+  "guide_response": {
+    "specific_place_intro": {
+      "th": "ยินดีต้อนรับค่ะ! มาเรียนรู้เรื่อง {place_name} จากไกด์ท้องถิ่นกัน 🌟",
+      "en": "Welcome! Let me tell you about {place_name} like a local guide 🌟"
+    },
+    "specific_place_history": {
+      "th": "📖 **เรื่องราวประวัติศาสตร์**: {history}",
+      "en": "📖 **History & Significance**: {history}"
+    },
+    "specific_place_highlights": {
+      "th": "✨ **ความพิเศษ**: {highlights}",
+      "en": "✨ **What Makes It Special**: {highlights}"
+    },
+    "specific_place_experience": {
+      "th": "🎯 **ประสบการณ์ที่ได้**: {experience}",
+      "en": "🎯 **What You'll Experience**: {experience}"
+    },
+    "practical_info": {
+      "th": "📋 **ข้อมูลปฏิบัติ**:\n   ⏰ เวลา: {hours}\n   💰 ค่าเข้า: {price}\n   📍 ที่ตั้ง: {location}\n   🚗 วิธีไป: {how_to_get}",
+      "en": "📋 **Practical Information**:\n   ⏰ Hours: {hours}\n   💰 Admission: {price}\n   📍 Location: {location}\n   🚗 How to Get There: {how_to_get}"
+    },
+    "insider_tips": {
+      "th": "💡 **เคล็ดลับจากไกด์**: {tips}",
+      "en": "💡 **Insider Tips**: {tips}"
+    },
+    "nearby_attractions": {
+      "th": "🗺️ **สถานที่ใกล้เคียง**: {nearby}",
+      "en": "🗺️ **Nearby Attractions**: {nearby}"
+    },
+    "best_for": {
+      "th": "👥 **เหมาะสำหรับ**: {best_for}",
+      "en": "👥 **Best For**: {best_for}"
+    },
+    "seasonal_tip": {
+      "th": "🌤️ **ฤดูกาลที่ดี**: {season}",
+      "en": "🌤️ **Best Season**: {season}"
+    },
+    "photo_spots": {
+      "th": "📸 **จุดถ่ายรูป**: {photo_spots}",
+      "en": "📸 **Photo Spots**: {photo_spots}"
+    }
+  },
   "fallback": {
     "th": "กรุณาลองใหม่อีกครั้งในภายหลัง นี่คือคำถามของคุณ: {query}\n\n(ขออภัยค่ะ ขณะนี้ระบบ AI ไม่พร้อมให้บริการ)",
     "en": "Please try again later. Here is your question: {query}\n\n(Sorry, the AI system is currently unavailable)"

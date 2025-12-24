@@ -178,6 +178,68 @@ class DatabaseService:
             results = [self._place_to_dict(place) for place in places]
             return results
 
+    def search_main_attractions(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search ONLY places with attraction_type='main_attraction'.
+        
+        Used when user asks for primary tourist attractions ("สถานที่ท่องเที่ยว", "ที่เที่ยวหลัก").
+        Filtering is done at SQL level - results are already database-classified.
+        AI should NOT attempt to reclassify these places.
+        
+        Args:
+            query: Search keywords
+            limit: Maximum number of main attractions to return
+            
+        Returns:
+            List of places where attraction_type='main_attraction'
+            If no main attractions found, returns empty list and AI should explicitly 
+            state that no primary attractions exist for this query.
+        """
+        pattern = f"%{query}%"
+        with self.session() as session:
+            # ONLY include places with attraction_type = 'main_attraction'
+            places_stmt = (
+                select(Place)
+                .where(
+                    Place.attraction_type == 'main_attraction',
+                    or_(
+                        Place.name.ilike(pattern),
+                        Place.description.ilike(pattern),
+                        Place.address.ilike(pattern),
+                        Place.category.ilike(pattern),
+                    )
+                )
+                .order_by(Place.name.asc())
+            )
+            
+            places_result = session.execute(places_stmt)
+            places = places_result.scalars().all()
+            
+            results = [self._place_to_dict(place) for place in places]
+            return results[:limit]
+
+    def get_all_main_attractions(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Retrieve ALL places classified as main attractions.
+        
+        Useful for listing main tourist spots without search filtering.
+        Database classification only - no AI reclassification.
+        
+        Returns:
+            All places where attraction_type='main_attraction'
+        """
+        with self.session() as session:
+            places_stmt = (
+                select(Place)
+                .where(Place.attraction_type == 'main_attraction')
+                .order_by(Place.name.asc())
+            )
+            places_result = session.execute(places_stmt)
+            places = places_result.scalars().all()
+            
+            results = [self._place_to_dict(place) for place in places]
+            return results[:limit]
+
     # ------------------------------------------------------------------
     # Trip plans & analytics (not yet backed by concrete tables)
     # ------------------------------------------------------------------
