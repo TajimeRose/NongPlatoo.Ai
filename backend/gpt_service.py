@@ -10,6 +10,18 @@ import logging
 from openai import OpenAI
 
 from .configs import PromptRepo
+from .constants import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TOP_P,
+    DEFAULT_PRESENCE_PENALTY,
+    DEFAULT_FREQUENCY_PENALTY,
+    DEFAULT_REQUEST_TIMEOUT,
+    THAI_CHAR_MIN_CODE,
+    THAI_CHAR_MAX_CODE,
+)
+from .text_utils import detect_language
 
 PROMPT_REPO = PromptRepo()
 logger = logging.getLogger(__name__)
@@ -23,22 +35,24 @@ class GPTService:
         self.model_config = PROMPT_REPO.get_model_params()
         chat_params = self.model_config.get("chat", {})
         greeting_params = self.model_config.get("greeting", {})
-        self.model_name = os.getenv("OPENAI_MODEL") or self.model_config.get("default_model")
+        self.model_name = os.getenv("OPENAI_MODEL") or self.model_config.get(
+            "default_model", DEFAULT_OPENAI_MODEL
+        )
         system_data = PROMPT_REPO.get_prompt("chatbot/system", default={})
         self.system_prompts = system_data.get("default", {})
         self.character_profile = PROMPT_REPO.get_character_profile()
         self.answer_prompts = PROMPT_REPO.get_prompt("chatbot/answer", default={})
         self.search_prompts = PROMPT_REPO.get_prompt("chatbot/search", default={})
         self.preferences = PROMPT_REPO.get_preferences()
-        self.temperature = chat_params.get("temperature", 0.8)
-        self.max_completion_tokens = chat_params.get("max_completion_tokens", 500)
-        self.top_p = chat_params.get("top_p", 1.0)
-        self.presence_penalty = chat_params.get("presence_penalty", 0.1)
-        self.frequency_penalty = chat_params.get("frequency_penalty", 0.1)
-        self.greeting_temperature = greeting_params.get("temperature", 0.8)
+        self.temperature = chat_params.get("temperature", DEFAULT_TEMPERATURE)
+        self.max_completion_tokens = chat_params.get("max_completion_tokens", DEFAULT_MAX_TOKENS)
+        self.top_p = chat_params.get("top_p", DEFAULT_TOP_P)
+        self.presence_penalty = chat_params.get("presence_penalty", DEFAULT_PRESENCE_PENALTY)
+        self.frequency_penalty = chat_params.get("frequency_penalty", DEFAULT_FREQUENCY_PENALTY)
+        self.greeting_temperature = greeting_params.get("temperature", DEFAULT_TEMPERATURE)
         self.greeting_max_tokens = greeting_params.get("max_completion_tokens", 150)
-        self.greeting_top_p = greeting_params.get("top_p", 1.0)
-        self.request_timeout = chat_params.get("timeout_seconds", 60)
+        self.greeting_top_p = greeting_params.get("top_p", DEFAULT_TOP_P)
+        self.request_timeout = chat_params.get("timeout_seconds", DEFAULT_REQUEST_TIMEOUT)
         self.greeting_timeout = greeting_params.get("timeout_seconds", self.request_timeout)
 
         if not self.api_key:
@@ -294,8 +308,8 @@ class GPTService:
 
     @staticmethod
     def _detect_language(text: str) -> str:
-        thai_chars = sum(1 for ch in text if "\u0e00" <= ch <= "\u0e7f")
-        return "th" if thai_chars > len(text) * 0.3 else "en"
+        """Detect if text is primarily Thai or English."""
+        return detect_language(text)
 
     def _format_context_data(self, context_data: List[Dict[str, Any]], data_type: str) -> str:
         if not context_data:

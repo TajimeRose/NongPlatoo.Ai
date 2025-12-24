@@ -1,6 +1,7 @@
 {
   "matching": {
-    "max_matches": 5,
+    "max_matches": 12,
+    "max_display": 8,
     "strict_only": true,
     "use_ai_keywords": true
   },

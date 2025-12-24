@@ -8,7 +8,7 @@
     ],
     "chat": {
       "temperature": 0.8,
-      "max_completion_tokens": 800,
+      "max_completion_tokens": 2000,
       "top_p": 0.95,
       "presence_penalty": 0.2,
       "frequency_penalty": 0.3,
@@ -16,7 +16,7 @@
     },
     "greeting": {
       "temperature": 0.8,
-      "max_completion_tokens": 150,
+      "max_completion_tokens": 250,
       "top_p": 1.0,
       "timeout_seconds": 60
     }

@@ -33,30 +33,62 @@ backend_env_path = os.path.join(backend_dir, '.env')
 if os.path.exists(backend_env_path):
     load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
 
+"""Import constants and optional route handlers."""
+# Pre-bind names to avoid static analysis warnings when optional imports fail
+handle_api_query = None
+handle_api_chat = None
+handle_visits = None
+handle_get_messages = None
+handle_clear_messages = None
+log_environment_info = None
+
+try:
+    from backend.constants import DEFAULT_CHAT_TIMEOUT_SECONDS
+    from backend.route_handlers import (
+        handle_api_query as _handle_api_query,
+        handle_api_chat as _handle_api_chat,
+        handle_visits as _handle_visits,
+        handle_get_messages as _handle_get_messages,
+        handle_clear_messages as _handle_clear_messages,
+        log_environment_info as _log_environment_info,
+    )
+    handle_api_query = _handle_api_query
+    handle_api_chat = _handle_api_chat
+    handle_visits = _handle_visits
+    handle_get_messages = _handle_get_messages
+    handle_clear_messages = _handle_clear_messages
+    log_environment_info = _log_environment_info
+    ROUTE_HANDLERS_AVAILABLE = True
+except ImportError as import_error:
+    logger.warning(f"Route handlers not available: {import_error}")
+    ROUTE_HANDLERS_AVAILABLE = False
+    DEFAULT_CHAT_TIMEOUT_SECONDS = 60
+
 # Default timeout for GPT calls to avoid worker hangs
-# Increased to 60 seconds to allow time for semantic model loading on first request
-CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "60"))
+CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", str(DEFAULT_CHAT_TIMEOUT_SECONDS)))
 
-logger.info("=" * 70)
-logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
-logger.info("=" * 70)
-logger.info(f"Python version: {sys.version}")
-logger.info(f"Working directory: {os.getcwd()}")
-logger.info(f"Backend directory: {backend_dir}")
-
-# Log environment status
-db_url = os.getenv("DATABASE_URL")
-if db_url:
-    # Mask password for security
-    masked = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
-    logger.info(f"✓ DATABASE_URL is set: {masked}")
+# Log environment info (fallback if route handler utility unavailable)
+if log_environment_info:
+    log_environment_info(logger, backend_dir)
 else:
-    logger.warning("✗ DATABASE_URL environment variable not found")
+    logger.info("=" * 70)
+    logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
+    logger.info("=" * 70)
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Backend directory: {backend_dir}")
 
-logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
-logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
-logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
-logger.info("=" * 70)
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        masked = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
+        logger.info(f"✓ DATABASE_URL is set: {masked}")
+    else:
+        logger.warning("✗ DATABASE_URL environment variable not found")
+
+    logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
+    logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
+    logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
+    logger.info("=" * 70)
 # Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
 BASE_DIR = os.path.dirname(__file__)
 STATIC_ROOTS = [
@@ -137,6 +169,25 @@ def index():
         return send_from_directory(folder, fname)
     abort(404)
     
+@app.route('/health', methods=['GET'])
+def health():
+    """Simple health check endpoint for deployments and monitors."""
+    try:
+        status = {
+            'status': 'ok',
+            'service': 'NongPlatoo.Ai',
+            'version': '1.0',
+            'python': sys.version.split()[0],
+            'backend_dir': backend_dir,
+            'db_env': bool(os.getenv('DATABASE_URL')),
+            'model_env': bool(os.getenv('OPENAI_API_KEY')),
+            'timestamp': datetime.datetime.now().isoformat(),
+        }
+        return jsonify(status), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 @app.route('/assets/<path:path>')
 def send_assets(path):
     found = _find_asset_file(path)
@@ -147,6 +198,11 @@ def send_assets(path):
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
+    if handle_api_query:
+        response_data, status_code = handle_api_query(get_chat_response)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -154,8 +210,6 @@ def api_query():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
-        
-        # เรียกใช้ฟังก์ชันจาก module
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -168,14 +222,18 @@ def api_query():
             'tokens_used': result.get('tokens_used'),
             'timestamp': datetime.datetime.now().isoformat()
         })
-    
     except Exception as e:
-        print(f"[ERROR] /api/query failed: {e}")
+        logger.error(f"[ERROR] /api/query failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
+    if handle_api_chat:
+        response_data, status_code = handle_api_chat(chat_with_bot)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -183,7 +241,6 @@ def api_chat():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
-        
         bot_response = chat_with_bot(user_message, user_id)
         
         return jsonify({
@@ -191,13 +248,17 @@ def api_chat():
             'response': bot_response,
             'timestamp': datetime.datetime.now().isoformat()
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/visits', methods=['GET', 'POST'])
 def visits():
+    if handle_visits:
+        response_data, status_code = handle_visits(normalize_path, increment_visit, get_counts)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
     try:
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
@@ -218,7 +279,7 @@ def visits():
             'pages': counts.get('pages', {})
         })
     except Exception as e:
-        print(f"[ERROR] /api/visits failed: {e}")
+        logger.error(f"[ERROR] /api/visits failed: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])

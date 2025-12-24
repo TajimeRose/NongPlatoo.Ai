@@ -108,7 +108,7 @@ npm install
 # จาก root ของโปรเจค
 python app.py
 
-# Server จะเริ่มทำงานที่ http://localhost:5000
+# Server จะเริ่มทำงานที่ http://localhost:8000
 ```
 
 #### Terminal 2 - Frontend Dev Server
@@ -154,12 +154,13 @@ docker-compose up --build
 docker build -t nongplatoo-ai .
 
 # Run container
-docker run -p 3000:3000 \
+docker run -p 9000:8000 \
   -e OPENAI_API_KEY=your-key-here \
   -e FLASK_ENV=production \
+  -e PORT=8000 \
   nongplatoo-ai
 
-# เข้าใช้งานได้ที่ http://localhost:3000
+# เข้าใช้งานได้ที่ http://localhost:9000
 ```
 
 ---
@@ -358,11 +359,15 @@ python app.py        # เริ่ม Flask server
    ```
    OPENAI_API_KEY=sk-xxxxx
    FLASK_ENV=production
+  PORT=8000
+  # ถ้าใช้ฐานข้อมูล Postgres
+  DATABASE_URL=postgresql+psycopg2://<user>:<password>@<host>:5432/<db>
    ```
 
 2. **ตั้งค่า Build Settings**:
-   - Build Pack: `Dockerfile`
-   - Port: Auto-detect (หรือ 3000)
+  - Build Pack: `Dockerfile`
+  - Service Port: `8000`
+  - Health Check Path: `/health`
 
 3. **Deploy**: Push ขึ้น Git แล้ว Coolify จะ auto-deploy
 

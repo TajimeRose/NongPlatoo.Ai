@@ -7,6 +7,8 @@ from typing import Dict, List, Optional
 import time
 from collections import defaultdict
 
+from .constants import MAX_MESSAGES_PER_USER, CONVERSATION_TTL_SECONDS
+
 
 class ConversationMemory:
     """
@@ -14,19 +16,25 @@ class ConversationMemory:
     Stores last N messages per user to provide context to AI
     """
     
-    def __init__(self, max_messages_per_user: int = 10, ttl_seconds: int = 1800):
+    def __init__(
+        self, 
+        max_messages_per_user: int = MAX_MESSAGES_PER_USER, 
+        ttl_seconds: int = CONVERSATION_TTL_SECONDS
+    ):
         """
         Initialize conversation memory
         
         Args:
-            max_messages_per_user: Maximum number of message pairs to keep per user (default: 10 = 20 messages)
-            ttl_seconds: Time to live for conversations in seconds (default: 1800 = 30 minutes)
+            max_messages_per_user: Maximum number of message pairs to keep per user
+            ttl_seconds: Time to live for conversations in seconds
         """
         self.max_messages = max_messages_per_user
         self.ttl_seconds = ttl_seconds
         
         # Structure: {user_id: {"messages": [...], "last_activity": timestamp}}
-        self._conversations: Dict[str, Dict] = defaultdict(lambda: {"messages": [], "last_activity": time.time()})
+        self._conversations: Dict[str, Dict] = defaultdict(
+            lambda: {"messages": [], "last_activity": time.time()}
+        )
     
     def add_message(self, user_id: str, role: str, content: str) -> None:
         """

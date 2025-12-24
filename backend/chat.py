@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .configs import PromptRepo
-from .db import get_db, Place, search_places
+from .db import get_db, Place, search_places, search_main_attractions, get_attractions_by_type
 try:
     from .services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
@@ -47,28 +47,32 @@ if TYPE_CHECKING:
 else:
     FlexibleMatcherType = Any
 
+from .constants import (
+    TRAVEL_DATA_CACHE_TTL_SECONDS,
+    RESPONSE_CACHE_TTL_SECONDS,
+    DUPLICATE_WINDOW_SECONDS,
+    DEFAULT_MATCH_LIMIT,
+    DEFAULT_DISPLAY_LIMIT,
+    DEFAULT_KEYWORD_DETECTION_LIMIT,
+    LOCAL_KEYWORDS as DEFAULT_LOCAL_KEYWORDS,
+)
+from .text_utils import detect_language, normalize_whitespace
+
 PROMPT_REPO = PromptRepo()
-# DATA_FILE and other JSON constants removed
 
 logger = logging.getLogger(__name__)
 
 # ====== PERFORMANCE OPTIMIZATION: Module-level caches ======
 _TRAVEL_DATA_CACHE: Optional[List[Dict[str, Any]]] = None
 _TRAVEL_DATA_CACHE_TIME: float = 0
-TRAVEL_DATA_CACHE_TTL_SECONDS = 300  # Cache travel data for 5 minutes
 
 _MATCHER_CACHE: Optional[Any] = None
 _MATCHER_CACHE_INITIALIZED = False
 
 _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}  # Query hash -> response
 _RESPONSE_CACHE_TIME: Dict[str, float] = {}  # Query hash -> timestamp
-RESPONSE_CACHE_TTL_SECONDS = 60  # Cache identical responses for 1 minute
 
-LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=[
-    "สมุทรสงคราม",
-    "samut songkhram"
-])
-DUPLICATE_WINDOW_SECONDS = 15
+LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=DEFAULT_LOCAL_KEYWORDS)
 
 
 class TravelChatbot:
@@ -82,8 +86,8 @@ class TravelChatbot:
         self.preferences = PROMPT_REPO.get_preferences()
         self.runtime_config = PROMPT_REPO.get_runtime_config()
         self.character_profile = PROMPT_REPO.get_character_profile()
-        self.match_limit = self.runtime_config.get("matching", {}).get("max_matches", 5)
-        self.display_limit = self.runtime_config.get("matching", {}).get("max_display", 4)
+        self.match_limit = self.runtime_config.get("matching", {}).get("max_matches", DEFAULT_MATCH_LIMIT)
+        self.display_limit = self.runtime_config.get("matching", {}).get("max_display", DEFAULT_DISPLAY_LIMIT)
         self.gpt_service: Optional[Any] = None
         # self.image_links = self._load_image_links() # Removed
         # self.province_profile = self._load_province_profile() # Removed
@@ -140,9 +144,8 @@ class TravelChatbot:
 
     @staticmethod
     def _detect_language(text: str) -> str:
-        thai_chars = sum(1 for ch in text if "\u0e00" <= ch <= "\u0e7f")
-        # Prioritize Thai if any Thai characters are present or if text is short
-        return "th" if thai_chars > 0 else "en"
+        """Detect if text is primarily Thai or English."""
+        return detect_language(text)
 
     def _classify_intent(self, query: str) -> Dict[str, Any]:
         """
@@ -264,8 +267,8 @@ class TravelChatbot:
 
     @staticmethod
     def _normalized_query_key(text: str) -> str:
-        collapsed = re.sub(r"\s+", " ", text.strip())
-        return collapsed.lower()
+        """Normalize query text for caching purposes."""
+        return normalize_whitespace(text).lower()
 
     def _replay_duplicate_response(self, user_id: str, key: str) -> Optional[Dict[str, Any]]:
         if not key:
@@ -289,7 +292,7 @@ class TravelChatbot:
             "result": payload,
         }
 
-    def _auto_detect_keywords(self, query: str, limit: int = 6) -> List[str]:
+    def _auto_detect_keywords(self, query: str, limit: int = DEFAULT_KEYWORD_DETECTION_LIMIT) -> List[str]:
         if not query or not self.travel_data:
             return []
         normalized_query = self._normalize_name_token(query)
@@ -723,6 +726,43 @@ class TravelChatbot:
             print(f"[WARN] Query interpretation failed: {exc}")
             return {"keywords": [], "places": []}
 
+    def _is_main_attractions_query(self, query: str) -> bool:
+        """
+        Detect if user is asking for PRIMARY/MAIN tourist attractions.
+        
+        Returns True if query contains terms like "สถานที่ท่องเที่ยว" or "ที่เที่ยวหลัก"
+        so that we can filter ONLY main_attraction types at SQL level.
+        
+        This ensures the database classification is used, not AI reclassification.
+        """
+        normalized_query = query.lower()
+        
+        # Thai terms for main attractions
+        main_attraction_indicators = [
+            "สถานที่ท่องเที่ยว",  # tourist attractions (primary/main)
+            "ที่เที่ยวหลัก",      # main tourist spots
+            "ที่เที่ยวสำคัญ",     # important tourist spots
+            "แหล่งท่องเที่ยว",    # tourist sources (often main)
+            "จุดท่องเที่ยว",      # tourist spots/points (main)
+            "อัตราคะแนนสูง",     # highly-rated
+            "มีชื่อเสียง",        # famous/renowned
+            "ดังที่สุด",          # most famous
+            "หลัก",              # main/primary (suffix indicator)
+        ]
+        
+        # English terms
+        english_indicators = [
+            "main attractions", "primary attractions", "major attractions",
+            "top attractions", "best attractions", "famous places",
+            "must see", "must visit", "landmark"
+        ]
+        
+        for indicator in main_attraction_indicators + english_indicators:
+            if indicator in normalized_query:
+                return True
+        
+        return False
+
     def _match_travel_data(
         self,
         query: str,
@@ -736,6 +776,10 @@ class TravelChatbot:
         normalizes the ``limit`` parameter into a concrete integer value before
         using it, preventing type errors when ``limit`` is ``None``.  It returns
         up to that number of results from the combined searches.
+        
+        IMPORTANT: If the query asks for "main attractions" (สถานที่ท่องเที่ยว),
+        filter ONLY by attraction_type='main_attraction' at SQL level.
+        The AI WILL NOT reclassify places - database classification is final.
         """
         # Normalize the limit to an integer.  If the caller doesn't specify a
         # limit, use the runtime-configured limit (self.match_limit) or fall back
@@ -745,8 +789,16 @@ class TravelChatbot:
             limit if isinstance(limit, int) and limit is not None else self.match_limit or 5
         )
 
+        # Check if user is asking specifically for main attractions
+        is_main_attraction_query = self._is_main_attractions_query(query)
+        
         # Perform the initial DB search using the full query
-        results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
+        if is_main_attraction_query:
+            # Use SQL-level filtering: ONLY main_attraction type
+            # The AI should not try to reclassify non-main attractions
+            results: List[Dict[str, Any]] = search_main_attractions(query, limit=limit_value)
+        else:
+            results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
 
         # If the caller provided additional keywords, search each keyword and
         # merge any new results until we reach the limit.  Use a small fixed
@@ -755,7 +807,10 @@ class TravelChatbot:
             for kw in keywords:
                 if len(results) >= limit_value:
                     break
-                kw_results = search_places(kw, limit=2)
+                if is_main_attraction_query:
+                    kw_results = search_main_attractions(kw, limit=2)
+                else:
+                    kw_results = search_places(kw, limit=2)
                 for res in kw_results:
                     # Avoid adding duplicates by checking the 'id' field
                     if not any(r.get('id') == res.get('id') for r in results):
@@ -763,6 +818,66 @@ class TravelChatbot:
 
         # Trim the final result list to the normalized limit
         return results[:limit_value]
+
+    def _add_classification_context(self, results: List[Dict[str, Any]]) -> str:
+        """
+        Build context string explaining the database classifications of results.
+        This helps the AI understand that places are pre-classified and shouldn't reclassify them.
+        
+        Args:
+            results: List of place dictionaries with attraction_type field
+            
+        Returns:
+            String explaining the classifications, suitable to include in system/user context
+        """
+        if not results:
+            return ""
+        
+        # Count by attraction_type
+        classification_map: Dict[str, list] = {}
+        for place in results:
+            attr_type = place.get('attraction_type', 'unknown')
+            if attr_type not in classification_map:
+                classification_map[attr_type] = []
+            classification_map[attr_type].append(place.get('name') or place.get('place_name', 'Unknown'))
+        
+        # Build explanation
+        lines = [
+            "📋 DATABASE CLASSIFICATION CONTEXT:",
+            "These search results are already classified by the database system:",
+            ""
+        ]
+        
+        for attr_type, places in sorted(classification_map.items()):
+            if attr_type == 'main_attraction':
+                lines.append(f"🏛️ Main Tourist Attractions ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            elif attr_type == 'secondary_attraction':
+                lines.append(f"🏞️ Secondary Attractions ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            elif attr_type == 'market':
+                lines.append(f"🛍️ Markets ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            elif attr_type == 'restaurant':
+                lines.append(f"🍽️ Restaurants ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            elif attr_type == 'cafe':
+                lines.append(f"☕ Cafes ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            elif attr_type == 'activity':
+                lines.append(f"🎯 Activities ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+            else:
+                lines.append(f"📌 {attr_type.upper()} ({len(places)}): {', '.join(places[:3])}" + 
+                           ("..." if len(places) > 3 else ""))
+        
+        lines.extend([
+            "",
+            "⚠️ IMPORTANT: Use these database-provided classifications. Do NOT reclassify places yourself.",
+            "The classifications are final and accurate.",
+        ])
+        
+        return "\n".join(lines)
 
     def _select_trip_guides_for_query(
         self,
@@ -997,44 +1112,85 @@ class TravelChatbot:
             highlights = entry.get("highlights") or entry.get("place_information", {}).get("highlights") or []
             best_time = entry.get("best_time") or entry.get("place_information", {}).get("best_time")
             tips = entry.get("tips") or entry.get("place_information", {}).get("tips")
+            opening_hours = entry.get("opening_hours") or ""
+            price_range = entry.get("price_range") or ""
+            address = entry.get("address") or ""
+            rating = entry.get("rating") or entry.get("place_information", {}).get("rating")
+            attraction_type = entry.get("attraction_type", "")
 
             def join_highlights(items: Any) -> str:
                 if isinstance(items, list):
                     return ", ".join(str(item) for item in items[:3])
                 return str(items)
 
-            if language == "th":
-                # For specific place queries, show more detailed single result
-                if is_specific_place and len(context_data) == 1:
-                    lines = [f"✨ {name}"]
+            # For specific place queries, provide guide-like detailed information
+            if is_specific_place and len(context_data) == 1:
+                if language == "th":
+                    lines = [f"🌟 **{name}**"]
+                    if attraction_type:
+                        lines.append(f"📂 ประเภท: {attraction_type}")
+                    if location:
+                        lines.append(f"📍 พื้นที่: {location}")
+                    if rating:
+                        lines.append(f"⭐ คะแนน: {rating}")
+                    if description:
+                        lines.append(f"\n📖 **เรื่องราว**: {description}")
+                    if highlights:
+                        lines.append(f"\n✨ **ไฮไลต์**: {join_highlights(highlights)}")
+                    if opening_hours:
+                        lines.append(f"\n⏰ **เวลา**: {opening_hours}")
+                    if price_range:
+                        lines.append(f"💰 **ค่าใช้สอย**: {price_range}")
+                    if address:
+                        lines.append(f"📮 **ที่ตั้ง**: {address}")
+                    if best_time:
+                        lines.append(f"\n🌤️ **เวลาที่ดี**: {best_time}")
+                    if tips:
+                        lines.append(f"\n💡 **เคล็ดลับ**: {join_highlights(tips)}")
                 else:
-                    lines = [f"{idx}. {name}"]
-                if location:
-                    lines.append(f"   📍 พื้นที่: {location}")
-                if description:
-                    lines.append(f"   จุดเด่น: {description}")
-                if highlights:
-                    lines.append(f"   ไฮไลต์: {join_highlights(highlights)}")
-                if best_time:
-                    lines.append(f"   ⏰ เวลาแนะนำ: {best_time}")
-                if tips:
-                    lines.append(f"   💡 เคล็ดลับ: {join_highlights(tips)}")
+                    lines = [f"🌟 **{name}**"]
+                    if attraction_type:
+                        lines.append(f"📂 Type: {attraction_type}")
+                    if location:
+                        lines.append(f"📍 Area: {location}")
+                    if rating:
+                        lines.append(f"⭐ Rating: {rating}")
+                    if description:
+                        lines.append(f"\n📖 **About**: {description}")
+                    if highlights:
+                        lines.append(f"\n✨ **Highlights**: {join_highlights(highlights)}")
+                    if opening_hours:
+                        lines.append(f"\n⏰ **Hours**: {opening_hours}")
+                    if price_range:
+                        lines.append(f"💰 **Cost**: {price_range}")
+                    if address:
+                        lines.append(f"📮 **Address**: {address}")
+                    if best_time:
+                        lines.append(f"\n🌤️ **Best Time**: {best_time}")
+                    if tips:
+                        lines.append(f"\n💡 **Tips**: {join_highlights(tips)}")
             else:
-                # For specific place queries, show more detailed single result
-                if is_specific_place and len(context_data) == 1:
-                    lines = [f"✨ {name}"]
+                # For multiple places, use compact format
+                if language == "th":
+                    lines = [f"{idx}. {name}"]
+                    if location:
+                        lines.append(f"   📍 พื้นที่: {location}")
+                    if description:
+                        lines.append(f"   จุดเด่น: {description[:100]}..." if len(description) > 100 else f"   จุดเด่น: {description}")
+                    if highlights:
+                        lines.append(f"   ✨ {join_highlights(highlights)}")
+                    if best_time:
+                        lines.append(f"   ⏰ {best_time}")
                 else:
                     lines = [f"{idx}. {name}"]
-                if location:
-                    lines.append(f"   📍 Area: {location}")
-                if description:
-                    lines.append(f"   Why visit: {description}")
-                if highlights:
-                    lines.append(f"   Highlights: {join_highlights(highlights)}")
-                if best_time:
-                    lines.append(f"   Best time: {best_time}")
-                if tips:
-                    lines.append(f"   Tips: {join_highlights(tips)}")
+                    if location:
+                        lines.append(f"   📍 Area: {location}")
+                    if description:
+                        lines.append(f"   Why visit: {description[:100]}..." if len(description) > 100 else f"   Why visit: {description}")
+                    if highlights:
+                        lines.append(f"   ✨ {join_highlights(highlights)}")
+                    if best_time:
+                        lines.append(f"   ⏰ {best_time}")
             return "\n".join(lines)
 
         intro_template = self._prompt_path(
