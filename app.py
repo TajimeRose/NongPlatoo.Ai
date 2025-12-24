@@ -166,7 +166,7 @@ def index():
     found = _find_static_file('index.html')
     if found:
         folder, fname = found
-        return send_from_directory(folder, fname)
+        return send_from_directory(folder, 'index.html')
     abort(404)
     
 @app.route('/health', methods=['GET'])
@@ -193,7 +193,7 @@ def send_assets(path):
     found = _find_asset_file(path)
     if found:
         folder, fname = found
-        return send_from_directory(folder, fname)
+        return send_from_directory(folder, path)
     abort(404)
 
 @app.route('/api/query', methods=['POST'])
