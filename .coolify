@@ -9,4 +9,4 @@ type=dockerfile
 healthCheckPath=/health
 
 # Port (Coolify will inject this as environment variable)
-port=3000
+port=8000
