@@ -24,7 +24,7 @@ WORKDIR /app
 # Coolify's container healthcheck uses curl/wget inside the container.
 # python:3.11-slim does not include them by default, so we add curl.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl wget ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # 1. จัดการ Dependencies
