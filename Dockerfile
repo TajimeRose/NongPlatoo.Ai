@@ -20,6 +20,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install runtime tools required for healthchecks
+# Coolify's container healthcheck uses curl/wget inside the container.
+# python:3.11-slim does not include them by default, so we add curl.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # 1. จัดการ Dependencies
 # สังเกต: requirements.txt อยู่ในโฟลเดอร์ backend
 COPY backend/requirements.txt ./
