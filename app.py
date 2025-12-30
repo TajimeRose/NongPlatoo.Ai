@@ -171,22 +171,23 @@ def index():
     
 @app.route('/health', methods=['GET'])
 def health():
-    """Simple health check endpoint for deployments and monitors."""
+    """
+    Simple health check endpoint for deployments and container orchestration.
+    Returns immediately without waiting for external resources.
+    This ensures quick response times for Coolify/Kubernetes healthchecks.
+    """
     try:
+        # Fast health response - don't check database or external services
+        # as timeouts will cause deployment failures
         status = {
-            'status': 'ok',
+            'status': 'healthy',
             'service': 'NongPlatoo.Ai',
-            'version': '1.0',
-            'python': sys.version.split()[0],
-            'backend_dir': backend_dir,
-            'db_env': bool(os.getenv('DATABASE_URL')),
-            'model_env': bool(os.getenv('OPENAI_API_KEY')),
             'timestamp': datetime.datetime.now().isoformat(),
         }
         return jsonify(status), 200
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return jsonify({'status': 'error', 'error': str(e)}), 500
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
 
 @app.route('/assets/<path:path>')
 def send_assets(path):
@@ -968,43 +969,7 @@ def firebase_config():
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
 
-@app.route('/health')
-def health_check():
-    """Health check endpoint with database status"""
-    try:
-        db_status = "unknown"
-        db_message = ""
-        
-        try:
-            # Try to connect to database
-            from backend.db import get_engine
-            from sqlalchemy import text
-            engine = get_engine()
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-                db_status = "connected"
-                db_message = "Database connection successful"
-                logger.info("✓ Health check: Database connected")
-        except Exception as e:
-            db_status = "disconnected"
-            db_message = str(e)
-            logger.error(f"✗ Health check: Database connection failed: {e}")
-        
-        return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.datetime.now().isoformat(),
-            'database': {
-                'status': db_status,
-                'message': db_message
-            }
-        })
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return jsonify({
-            'status': 'unhealthy',
-            'timestamp': datetime.datetime.now().isoformat(),
-            'error': str(e)
-        }), 500
+
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
