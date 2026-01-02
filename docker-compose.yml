@@ -11,10 +11,6 @@ services:
     restart: always
     depends_on:
       - db
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.nongplatoo.rule=Host(`nongplatoo.online`)"
-      - "traefik.http.services.nongplatoo.loadbalancer.server.port=8000"
 
   db:
     image: postgres:15-alpine
@@ -25,7 +21,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5432:8900"
 
 volumes:
   postgres_data:
