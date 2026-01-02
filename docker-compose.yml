@@ -1,8 +1,6 @@
 services:
   web:
     build: .
-    ports:
-      - "9000:8000"
     expose:
       - "8000"
     environment:
