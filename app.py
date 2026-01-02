@@ -171,23 +171,8 @@ def index():
     
 @app.route('/health', methods=['GET'])
 def health():
-    """
-    Simple health check endpoint for deployments and container orchestration.
-    Returns immediately without waiting for external resources.
-    This ensures quick response times for Coolify/Kubernetes healthchecks.
-    """
-    try:
-        # Fast health response - don't check database or external services
-        # as timeouts will cause deployment failures
-        status = {
-            'status': 'healthy',
-            'service': 'NongPlatoo.Ai',
-            'timestamp': datetime.datetime.now().isoformat(),
-        }
-        return jsonify(status), 200
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return jsonify({'status': 'unhealthy', 'error': str(e)}), 503
+    """Simple health check endpoint."""
+    return jsonify({'status': 'healthy', 'service': 'NongPlatoo.Ai'}), 200
 
 @app.route('/assets/<path:path>')
 def send_assets(path):
