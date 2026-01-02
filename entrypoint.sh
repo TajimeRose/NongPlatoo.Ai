@@ -23,4 +23,4 @@ echo "⚠️ Database initialization disabled (using OpenAI API and JSON files)"
 
 # Start gunicorn
 echo "✅ Starting Gunicorn on 0.0.0.0:$PORT"
-exec gunicorn -b 0.0.0.0:$PORT -w 4 -t 120 --access-logfile - app:app
+exec gunicorn -b 0.0.0.0:$PORT -w 4 -t 300 --graceful-timeout 60 --access-logfile - --error-logfile - -v app:app
