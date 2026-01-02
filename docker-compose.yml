@@ -11,6 +11,10 @@ services:
     restart: always
     depends_on:
       - db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nongplatoo.rule=Host(`nongplatoo.online`)"
+      - "traefik.http.services.nongplatoo.loadbalancer.server.port=8000"
 
   db:
     image: postgres:15-alpine
