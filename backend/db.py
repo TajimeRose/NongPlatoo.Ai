@@ -13,15 +13,10 @@ This module provides:
    - get_db()
    - init_db()
 
-<<<<<<< HEAD
-3. High-level utilities:
-   - search_places(keyword, limit) → domain-specific search over places table
-=======
 3. High-level utilities for place search (all use SQL-level filtering):
    - search_places(keyword, limit, attraction_type=None) → search with optional attraction_type filter
    - search_main_attractions(keyword, limit) → ONLY primary tourist attractions
    - get_attractions_by_type(attraction_type, limit) → all places of a specific type
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 4. Generic database utilities (work with ANY table in the database):
    - list_tables()                      → list all table names
@@ -33,12 +28,8 @@ from __future__ import annotations
 
 import os
 import json
-<<<<<<< HEAD
-from typing import Dict, Generator, Iterable, List, cast as typing_cast
-=======
 import re
 from typing import Any, Dict, Generator, Iterable, List
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 try:
     from dotenv import load_dotenv
@@ -46,25 +37,12 @@ except ImportError:  # pragma: no cover - optional dependency during runtime
     load_dotenv = None  # type: ignore
 
 from sqlalchemy import (
-<<<<<<< HEAD
-    JSON,
-    Column,
-    Float,
-    Integer,
-    BigInteger,
-    ForeignKey,
-    String,
-    text,
-    Text,
-    cast,
-=======
     Column,
     Integer,
     Numeric,
     String,
     text,
     Text,
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     create_engine,
     or_,
     select,
@@ -74,19 +52,12 @@ from sqlalchemy import (
     DateTime,
     func,
 )
-<<<<<<< HEAD
-from sqlalchemy.dialects.postgresql import JSONB, INET
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
-<<<<<<< HEAD
-=======
 from .constants import DEFAULT_SEARCH_LIMIT, MAX_ATTRACTIONS_LIMIT
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 if load_dotenv:
     # Automatically pull DATABASE_URL, OPENAI_API_KEY, etc. from .env files.
     # Load from the backend directory's .env file
@@ -111,14 +82,6 @@ class Place(Base):
     place_id = Column(String, nullable=False)
     name = Column(String, nullable=False)
     category = Column(String)
-<<<<<<< HEAD
-    address = Column(Text)
-    rating = Column(Float)
-    reviews = Column(Integer)
-    description = Column(Text)
-    images = Column(JSON)
-    tags = Column(JSON)  # list[str]
-=======
     description = Column(Text)
     address = Column(Text)
     latitude = Column(Numeric(9, 6))
@@ -127,7 +90,6 @@ class Place(Base):
     price_range = Column(Text)
     image_urls = Column(Text)
     attraction_type = Column(String)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
     def to_dict(self) -> Dict[str, object]:
         """Convert to dict with chatbot-compatible field names and defaults."""
@@ -135,19 +97,10 @@ class Place(Base):
         city_value = ""
         if self.address is not None:
             # Try to extract city/district from address
-<<<<<<< HEAD
-            import re
-
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             city_match = re.search(r"(อำเภอ|อ\.)\s*([^\s,]+)", str(self.address))
             if city_match:
                 city_value = city_match.group(2)
 
-<<<<<<< HEAD
-        # Build type list from category
-        type_value = [self.category] if self.category is not None else []
-=======
         # Build type list from category/attraction type
         type_candidates: list[str] = []
         for val in (self.attraction_type, self.category):
@@ -192,7 +145,6 @@ class Place(Base):
                 return float(value) if value is not None else None
             except (TypeError, ValueError):
                 return None
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
         return {
             "id": str(self.id),
@@ -201,28 +153,14 @@ class Place(Base):
             "place_name": self.name,  # Use name as place_name
             "description": self.description,
             "address": self.address,
-<<<<<<< HEAD
-=======
             "latitude": _to_float(self.latitude),
             "longitude": _to_float(self.longitude),
             "opening_hours": self.opening_hours,
             "price_range": self.price_range,
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             "city": city_value,
             "province": "สมุทรสงคราม",  # Default province
             "type": type_value,
             "category": self.category,
-<<<<<<< HEAD
-            "rating": self.rating,
-            "reviews": self.reviews,
-            "tags": self.tags if self.tags is not None else [],
-            "highlights": self.tags if self.tags is not None else [],  # Use tags as highlights
-            "place_information": {
-                "detail": self.description,
-                "category_description": self.category,
-            },
-            "images": self.images if self.images is not None else [],
-=======
             "rating": None,
             "reviews": None,
             "tags": type_value,
@@ -233,16 +171,11 @@ class Place(Base):
             },
             "images": images,
             "attraction_type": self.attraction_type,
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             "source": "database",
         }
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
-<<<<<<< HEAD
-        return f"Place(id={self.id!r}, name={self.name!r}, rating={self.rating!r})"
-=======
         return f"Place(id={self.id!r}, name={self.name!r}, category={self.category!r})"
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 
 class MessageFeedback(Base):
@@ -279,39 +212,6 @@ class MessageFeedback(Base):
         return f"MessageFeedback(id={self.id!r}, message_id={self.message_id!r}, feedback_type={self.feedback_type!r})"
 
 
-<<<<<<< HEAD
-class UserActivityLog(Base):
-    """ORM model for tracking user interactions (clicks, views, etc.)."""
-    
-    __tablename__ = 'user_activity_logs'
-
-    id = Column(BigInteger, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True) # null if guest
-    action_type = Column(String(50))    # click, view, scroll
-    target_element = Column(String(100)) # which button, link
-    page_url = Column(Text)
-    meta_data = Column(JSONB)              # detailed json data
-    ip_address = Column(INET)              # IP address
-    created_at = Column(DateTime, default=func.now())
-
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            'id': self.id,
-            'user_id': self.user_id,
-            'action_type': self.action_type,
-            'target_element': self.target_element,
-            'page_url': self.page_url,
-            'meta_data': self.meta_data,
-            'ip_address': str(self.ip_address) if self.ip_address else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None
-        }
-
-    def __repr__(self) -> str:
-        return f"UserActivityLog(id={self.id!r}, action_type={self.action_type!r}, created_at={self.created_at!r})"
-
-
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 def get_db_url() -> str:
     """Resolve the database URL.
 
@@ -376,20 +276,12 @@ def get_db_url() -> str:
 
         return base
 
-<<<<<<< HEAD
-    # Final fallback
-=======
     # Final fallback for local development only
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     print(
         "[WARN] DATABASE_URL is not set and POSTGRES_* vars not found; "
         "falling back to default postgres URL"
     )
-<<<<<<< HEAD
-    return "postgresql://postgres:password@localhost:5432/worldjourney"
-=======
     return "postgresql://postgres:YOUR_LOCAL_PASSWORD@localhost:5432/worldjourney"
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 
 _ENGINE: Engine | None = None
@@ -448,13 +340,6 @@ def get_db() -> Generator[Session, None, None]:
 # ---------------------------------------------------------------------------
 
 
-<<<<<<< HEAD
-def search_places(keyword: str, limit: int = 10) -> List[Dict[str, object]]:
-    """
-    Search both ``places`` and ``tourist_places`` tables for records
-    containing ``keyword``.
-
-=======
 def search_places(
     keyword: str, 
     limit: int = DEFAULT_SEARCH_LIMIT, 
@@ -476,7 +361,6 @@ def search_places(
     Returns:
         List of place dictionaries with database-classified attraction_type
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     If any database error occurs, log it and return an empty list so that
     the chatbot can still answer using pure GPT instead of crashing the API.
     """
@@ -485,7 +369,6 @@ def search_places(
         session_factory = get_session_factory()
         kw = f"%{keyword}%"
 
-<<<<<<< HEAD
         places_stmt = (
             select(Place)
             .where(
@@ -498,28 +381,6 @@ def search_places(
                 )
             )
             .order_by(Place.rating.desc().nullslast())
-=======
-        conditions = [
-            or_(
-                Place.name.ilike(kw),
-                Place.category.ilike(kw),
-                Place.address.ilike(kw),
-                Place.description.ilike(kw),
-                Place.attraction_type.ilike(kw),
-                Place.opening_hours.ilike(kw),
-                Place.price_range.ilike(kw),
-            )
-        ]
-        
-        # Add attraction_type filter if specified
-        if attraction_type:
-            conditions.append(Place.attraction_type == attraction_type)
-
-        places_stmt = (
-            select(Place)
-            .where(*conditions)
-            .order_by(Place.name.asc())
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             .limit(limit)
         )
 
@@ -527,19 +388,6 @@ def search_places(
             places_rows: Iterable[Place] = session.scalars(places_stmt)
             results: List[Dict[str, object]] = [place.to_dict() for place in places_rows]
 
-<<<<<<< HEAD
-        def _rating(val: Dict[str, object]) -> float:
-            try:
-                raw = val.get("rating", 0)
-                if isinstance(raw, (int, float, str)):
-                    return float(raw)
-                return 0.0
-            except Exception:
-                return 0.0
-
-        results.sort(key=_rating, reverse=True)
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         return results[:limit]
 
     except SQLAlchemyError as e:
@@ -547,8 +395,6 @@ def search_places(
         return []
 
 
-<<<<<<< HEAD
-=======
 def search_main_attractions(keyword: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[Dict[str, object]]:
     """
     Search for PRIMARY tourist attractions (attractions with attraction_type = 'main_attraction').
@@ -610,7 +456,6 @@ def get_attractions_by_type(attraction_type: str, limit: int = MAX_ATTRACTIONS_L
         return []
 
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 # ---------------------------------------------------------------------------
 # Generic helpers: work with ANY table in the connected database

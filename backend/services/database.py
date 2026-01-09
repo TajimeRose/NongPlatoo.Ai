@@ -64,7 +64,6 @@ class DatabaseService:
     def get_all_destinations(self) -> List[Dict[str, Any]]:
         with self.session() as session:
             # Get from places table only
-<<<<<<< HEAD
             places_result = session.execute(select(Place).order_by(Place.rating.desc().nullslast()))
             places = places_result.scalars().all()
             
@@ -72,12 +71,6 @@ class DatabaseService:
             
             # Sort by rating
             all_destinations.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
-=======
-            places_result = session.execute(select(Place).order_by(Place.name.asc()))
-            places = places_result.scalars().all()
-            
-            all_destinations = [self._place_to_dict(place) for place in places]
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             return all_destinations
 
     def search_destinations(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
