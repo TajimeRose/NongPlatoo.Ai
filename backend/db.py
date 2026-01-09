@@ -38,6 +38,8 @@ from sqlalchemy import (
     Column,
     Float,
     Integer,
+    BigInteger,
+    ForeignKey,
     String,
     text,
     Text,
@@ -51,6 +53,7 @@ from sqlalchemy import (
     DateTime,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB, INET
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
@@ -160,6 +163,36 @@ class MessageFeedback(Base):
     
     def __repr__(self) -> str:
         return f"MessageFeedback(id={self.id!r}, message_id={self.message_id!r}, feedback_type={self.feedback_type!r})"
+
+
+class UserActivityLog(Base):
+    """ORM model for tracking user interactions (clicks, views, etc.)."""
+    
+    __tablename__ = 'user_activity_logs'
+
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True) # null if guest
+    action_type = Column(String(50))    # click, view, scroll
+    target_element = Column(String(100)) # which button, link
+    page_url = Column(Text)
+    meta_data = Column(JSONB)              # detailed json data
+    ip_address = Column(INET)              # IP address
+    created_at = Column(DateTime, default=func.now())
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'action_type': self.action_type,
+            'target_element': self.target_element,
+            'page_url': self.page_url,
+            'meta_data': self.meta_data,
+            'ip_address': str(self.ip_address) if self.ip_address else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self) -> str:
+        return f"UserActivityLog(id={self.id!r}, action_type={self.action_type!r}, created_at={self.created_at!r})"
 
 
 def get_db_url() -> str:

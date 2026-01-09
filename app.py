@@ -10,6 +10,7 @@ from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
+from flask_jwt_extended import JWTManager
 
 # Setup logging for debugging
 logging.basicConfig(
@@ -70,6 +71,18 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 
 app = Flask(__name__)
 CORS(app)
+
+# JWT Setup
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'nong-platoo-secret-key')
+jwt = JWTManager(app)
+
+# Register blueprints
+try:
+    from backend.routes import tracking_bp
+    app.register_blueprint(tracking_bp)
+    logger.info("✓ Tracking routes registered successfully")
+except Exception as e:
+    logger.error(f"✗ Failed to register tracking routes: {e}")
 
 try:
     # Attempt to import chat utilities from either root or the 'backend' package.
