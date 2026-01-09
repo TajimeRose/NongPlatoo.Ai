@@ -10,7 +10,10 @@ from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
+<<<<<<< HEAD
 from flask_jwt_extended import JWTManager
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 # Setup logging for debugging
 logging.basicConfig(
@@ -34,6 +37,7 @@ backend_env_path = os.path.join(backend_dir, '.env')
 if os.path.exists(backend_env_path):
     load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
 
+<<<<<<< HEAD
 # Default timeout for GPT calls to avoid worker hangs
 # Increased to 60 seconds to allow time for semantic model loading on first request
 CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "60"))
@@ -58,6 +62,64 @@ logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
 logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
 logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
 logger.info("=" * 70)
+=======
+"""Import constants and optional route handlers."""
+# Pre-bind names to avoid static analysis warnings when optional imports fail
+handle_api_query = None
+handle_api_chat = None
+handle_visits = None
+handle_get_messages = None
+handle_clear_messages = None
+log_environment_info = None
+
+try:
+    from backend.constants import DEFAULT_CHAT_TIMEOUT_SECONDS
+    from backend.route_handlers import (
+        handle_api_query as _handle_api_query,
+        handle_api_chat as _handle_api_chat,
+        handle_visits as _handle_visits,
+        handle_get_messages as _handle_get_messages,
+        handle_clear_messages as _handle_clear_messages,
+        log_environment_info as _log_environment_info,
+    )
+    handle_api_query = _handle_api_query
+    handle_api_chat = _handle_api_chat
+    handle_visits = _handle_visits
+    handle_get_messages = _handle_get_messages
+    handle_clear_messages = _handle_clear_messages
+    log_environment_info = _log_environment_info
+    ROUTE_HANDLERS_AVAILABLE = True
+except ImportError as import_error:
+    logger.warning(f"Route handlers not available: {import_error}")
+    ROUTE_HANDLERS_AVAILABLE = False
+    DEFAULT_CHAT_TIMEOUT_SECONDS = 60
+
+# Default timeout for GPT calls to avoid worker hangs
+CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", str(DEFAULT_CHAT_TIMEOUT_SECONDS)))
+
+# Log environment info (fallback if route handler utility unavailable)
+if log_environment_info:
+    log_environment_info(logger, backend_dir)
+else:
+    logger.info("=" * 70)
+    logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
+    logger.info("=" * 70)
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Backend directory: {backend_dir}")
+
+    db_url = os.getenv("DATABASE_URL")
+    if db_url:
+        masked = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
+        logger.info(f"✓ DATABASE_URL is set: {masked}")
+    else:
+        logger.warning("✗ DATABASE_URL environment variable not found")
+
+    logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
+    logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
+    logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
+    logger.info("=" * 70)
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 # Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
 BASE_DIR = os.path.dirname(__file__)
 STATIC_ROOTS = [
@@ -72,6 +134,7 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 CORS(app)
 
+<<<<<<< HEAD
 # JWT Setup
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'nong-platoo-secret-key')
 jwt = JWTManager(app)
@@ -84,6 +147,8 @@ try:
 except Exception as e:
     logger.error(f"✗ Failed to register tracking routes: {e}")
 
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 try:
     # Attempt to import chat utilities from either root or the 'backend' package.
     from backend.chat import chat_with_bot, get_chat_response
@@ -147,19 +212,42 @@ def index():
     found = _find_static_file('index.html')
     if found:
         folder, fname = found
+<<<<<<< HEAD
         return send_from_directory(folder, fname)
     abort(404)
     
+=======
+        return send_from_directory(folder, 'index.html')
+    abort(404)
+    
+@app.route('/health', methods=['GET'])
+def health():
+    """Simple health check endpoint."""
+    return jsonify({'status': 'healthy', 'service': 'NongPlatoo.Ai'}), 200
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 @app.route('/assets/<path:path>')
 def send_assets(path):
     found = _find_asset_file(path)
     if found:
         folder, fname = found
+<<<<<<< HEAD
         return send_from_directory(folder, fname)
+=======
+        return send_from_directory(folder, path)
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     abort(404)
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
+<<<<<<< HEAD
+=======
+    if handle_api_query:
+        response_data, status_code = handle_api_query(get_chat_response)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -167,8 +255,11 @@ def api_query():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
+<<<<<<< HEAD
         
         # เรียกใช้ฟังก์ชันจาก module
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -181,14 +272,27 @@ def api_query():
             'tokens_used': result.get('tokens_used'),
             'timestamp': datetime.datetime.now().isoformat()
         })
+<<<<<<< HEAD
     
     except Exception as e:
         print(f"[ERROR] /api/query failed: {e}")
+=======
+    except Exception as e:
+        logger.error(f"[ERROR] /api/query failed: {e}")
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
+<<<<<<< HEAD
+=======
+    if handle_api_chat:
+        response_data, status_code = handle_api_chat(chat_with_bot)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -196,7 +300,10 @@ def api_chat():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
+<<<<<<< HEAD
         
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         bot_response = chat_with_bot(user_message, user_id)
         
         return jsonify({
@@ -204,13 +311,24 @@ def api_chat():
             'response': bot_response,
             'timestamp': datetime.datetime.now().isoformat()
         })
+<<<<<<< HEAD
     
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/visits', methods=['GET', 'POST'])
 def visits():
+<<<<<<< HEAD
+=======
+    if handle_visits:
+        response_data, status_code = handle_visits(normalize_path, increment_visit, get_counts)
+        return jsonify(response_data), status_code
+    
+    # Fallback implementation
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
@@ -231,20 +349,442 @@ def visits():
             'pages': counts.get('pages', {})
         })
     except Exception as e:
+<<<<<<< HEAD
         print(f"[ERROR] /api/visits failed: {e}")
+=======
+        logger.error(f"[ERROR] /api/visits failed: {e}")
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages():
+<<<<<<< HEAD
     try:
         return jsonify({
             'success': True,
             'messages': []
+=======
+    """Get conversation history for a user"""
+    try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        user_id = request.args.get('user_id', 'default')
+        limit = int(request.args.get('limit', 20))
+        
+        memory = get_conversation_memory()
+        history = memory.get_history(user_id, limit=limit)
+        
+        return jsonify({
+            'success': True,
+            'messages': history,
+            'count': len(history)
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
+<<<<<<< HEAD
+=======
+@app.route('/api/messages/clear', methods=['POST'])
+def clear_messages():
+    """Clear conversation history for a user"""
+    try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('user_id', 'default')
+        
+        memory = get_conversation_memory()
+        memory.clear_history(user_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Conversation history cleared'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/memory/stats', methods=['GET'])
+def get_memory_stats():
+    """Get conversation memory statistics"""
+    try:
+        from backend.conversation_memory import get_conversation_memory
+        
+        memory = get_conversation_memory()
+        stats = memory.get_stats()
+        
+        return jsonify({
+            'success': True,
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/messages/stream', methods=['POST'])
+def post_message_stream():
+    """Streaming endpoint for chat responses using Server-Sent Events."""
+    try:
+        data = request.get_json(silent=True) or {}
+        user_message = data.get('text') or data.get('message') or ''
+        user_id = data.get('user_id', 'default')
+
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': 'Text is required'
+            }), 400
+
+        def generate():
+            """Generator function for SSE streaming."""
+            try:
+                # Import here to avoid circular dependencies
+                from backend.chat import TravelChatbot
+                from backend.conversation_memory import get_conversation_memory
+                
+                # Get conversation memory
+                memory = get_conversation_memory()
+                
+                # Get or create chatbot instance
+                chatbot = TravelChatbot()
+                language = chatbot._detect_language(user_message)
+                
+                # Get conversation history for this user
+                conversation_history = memory.get_history(user_id)
+                
+                # Classify intent
+                intent_classification = chatbot._classify_intent(user_message)
+                
+                # Send intent classification first
+                yield "data: " + json.dumps({'type': 'intent', 'intent_type': intent_classification['intent_type'], 'keywords': intent_classification['keywords'][:3]}, ensure_ascii=False) + "\n\n"
+                
+                # Get matched data from database
+                matched_data = chatbot._match_travel_data(
+                    user_message,
+                    keywords=intent_classification.get('keywords'),
+                )
+                
+                # Send structured data
+                if matched_data:
+                    yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:3]}, ensure_ascii=False) + "\n\n"
+                
+                # Store full assistant response
+                assistant_response = ""
+                
+                # Stream GPT response
+                if chatbot.gpt_service:
+                    for chunk in chatbot.gpt_service.generate_response_stream(
+                        user_query=intent_classification['clean_question'],
+                        context_data=matched_data,
+                        data_type='travel',
+                        intent=intent_classification['intent_type'],
+                        intent_type=intent_classification['intent_type'],
+                        data_status={
+                            'success': bool(matched_data),
+                            'data_available': bool(matched_data),
+                            'source': 'database',
+                        },
+                        conversation_history=conversation_history
+                    ):
+                        if 'chunk' in chunk:
+                            assistant_response += chunk['chunk']
+                            yield "data: " + json.dumps({'type': 'text', 'text': chunk['chunk']}, ensure_ascii=False) + "\n\n"
+                        elif 'done' in chunk:
+                            # Save conversation to memory
+                            memory.add_message(user_id, "user", user_message)
+                            memory.add_message(user_id, "assistant", assistant_response)
+                            
+                            yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
+                        elif 'error' in chunk:
+                            yield "data: " + json.dumps({'type': 'error', 'message': chunk['error']}, ensure_ascii=False) + "\n\n"
+                else:
+                    # Fallback to simple response
+                    simple_response = chatbot._create_simple_response(
+                        matched_data,
+                        language,
+                        is_specific_place=intent_classification['intent_type'] == 'specific'
+                    )
+                    
+                    # Save conversation to memory
+                    memory.add_message(user_id, "user", user_message)
+                    memory.add_message(user_id, "assistant", simple_response)
+                    
+                    yield "data: " + json.dumps({'type': 'text', 'text': simple_response}, ensure_ascii=False) + "\n\n"
+                    yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
+                    
+            except Exception as e:
+                logger.exception("Error in streaming generation")
+                yield "data: " + json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False) + "\n\n"
+
+        return Response(generate(), mimetype='text/event-stream')
+
+    except Exception as e:
+        app.logger.exception("Error in /api/messages/stream")
+        return jsonify({
+            'success': False,
+            'error': True,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/speech-to-text', methods=['POST'])
+def speech_to_text():
+    """Convert speech audio to text using OpenAI Whisper API."""
+    try:
+        # Check if audio file is in request
+        if 'audio' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No audio file provided'
+            }), 400
+        
+        audio_file = request.files['audio']
+        
+        # Check file size (limit to 25MB for Whisper API)
+        audio_file.seek(0, 2)  # Seek to end
+        file_size = audio_file.tell()
+        audio_file.seek(0)  # Reset to beginning
+        
+        if file_size > 25 * 1024 * 1024:
+            return jsonify({
+                'success': False,
+                'error': 'Audio file too large (max 25MB)'
+            }), 400
+        
+        # Use OpenAI Whisper API
+        from openai import OpenAI
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key:
+            return jsonify({
+                'success': False,
+                'error': 'OpenAI API key not configured'
+            }), 500
+        
+        client = OpenAI(api_key=api_key)
+        
+        # Transcribe audio - convert FileStorage to file-like object
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(audio_file.filename, audio_file.stream, audio_file.content_type),
+            language="th"  # Default to Thai, can be auto-detected
+        )
+        
+        return jsonify({
+            'success': True,
+            'text': transcript.text,
+            'language': 'th'
+        })
+        
+    except Exception as e:
+        logger.exception("Error in speech-to-text")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def clean_text_for_speech(text: str) -> str:
+    """Clean text by removing markdown and special formatting while preserving natural speech flow."""
+    import re
+    
+    # Remove markdown bold/italic markers while preserving the text
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold**
+    text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic*
+    text = re.sub(r'__(.+?)__', r'\1', text)      # __bold__
+    text = re.sub(r'_(.+?)_', r'\1', text)        # _italic_
+    
+    # Remove markdown headers but keep the text with proper spacing
+    text = re.sub(r'^#+\s+(.+)$', r'\1. ', text, flags=re.MULTILINE)  # # Header -> Header.
+    
+    # Convert list markers to natural pauses
+    text = re.sub(r'^\s*[-*+]\s+(.+)$', r'\1, ', text, flags=re.MULTILINE)  # - item -> item,
+    text = re.sub(r'^\s*\d+\.\s+(.+)$', r'\1, ', text, flags=re.MULTILINE)  # 1. item -> item,
+    
+    # Remove emojis but add slight pause where they were
+    text = re.sub(r'[🏛️🛶🌲🚣🏖️🏔️🌆📍✨🎉🔥⭐✅❌⚠️💎🔑🌐🎯🚀📊🎨🎤🔊]+', ' ', text)
+    
+    # Remove URLs
+    text = re.sub(r'https?://\S+', '', text)
+    
+    # Remove parentheses but keep the content with commas for natural pauses
+    text = re.sub(r'\(([^)]+)\)', r', \1, ', text)
+    
+    # Convert newlines to natural sentence breaks
+    text = re.sub(r'\n\n+', '. ', text)  # Double newlines -> period + space
+    text = re.sub(r'\n', ' ', text)      # Single newlines -> space
+    
+    # Clean up multiple punctuation
+    text = re.sub(r'([.!?])\1+', r'\1', text)  # Remove duplicate punctuation
+    text = re.sub(r'\s*([.!?,])\s*', r'\1 ', text)  # Normalize spacing around punctuation
+    
+    # Remove extra commas at end of sentences
+    text = re.sub(r',\s*([.!?])', r'\1', text)
+    
+    # Normalize spaces - ensure single space between words
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Clean up spaces before punctuation
+    text = re.sub(r'\s+([.!?,])', r'\1', text)
+    
+    # Ensure sentences end properly for natural pauses
+    if text and not text[-1] in '.!?':
+        text += '.'
+    
+    text = text.strip()
+    
+    return text
+
+
+@app.route('/api/text-to-speech', methods=['POST'])
+def text_to_speech():
+    """Convert text to speech audio using gTTS (free) or Google Cloud TTS for natural Thai voice."""
+    try:
+        data = request.get_json(silent=True) or {}
+        text = data.get('text', '')
+        language = data.get('language', 'th')  # Default to Thai
+        
+        if not text:
+            return jsonify({
+                'success': False,
+                'error': 'Text is required'
+            }), 400
+        
+        # Clean text from markdown and special characters
+        cleaned_text = clean_text_for_speech(text)
+        
+        if not cleaned_text:
+            return jsonify({
+                'success': False,
+                'error': 'No speakable text after cleaning'
+            }), 400
+        
+        import base64
+        
+        # Option 1: Try gTTS first (FREE, no API key needed, great for Thai)
+        try:
+            from gtts import gTTS
+            import io
+            
+            # Auto-detect language if not specified
+            if language == 'th' or any('\u0e00' <= c <= '\u0e7f' for c in cleaned_text):
+                tts_lang = 'th'
+            else:
+                tts_lang = 'en'
+            
+            # Generate speech with gTTS using cleaned text
+            tts = gTTS(text=cleaned_text, lang=tts_lang, slow=False)
+            
+            # Save to BytesIO
+            audio_io = io.BytesIO()
+            tts.write_to_fp(audio_io)
+            audio_io.seek(0)
+            
+            # Convert to base64
+            audio_base64 = base64.b64encode(audio_io.read()).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'gtts-free'
+            })
+            
+        except ImportError:
+            logger.info("gTTS not available, trying Google Cloud TTS")
+        except Exception as gtts_error:
+            logger.warning(f"gTTS failed: {gtts_error}, trying Google Cloud TTS")
+        
+        # Option 2: Try Google Cloud TTS (best quality, requires API key)
+        try:
+            from google.cloud import texttospeech
+            
+            client = texttospeech.TextToSpeechClient()
+            
+            synthesis_input = texttospeech.SynthesisInput(text=cleaned_text)
+            
+            # Configure voice - use Thai female voice for natural pronunciation
+            if language == 'th' or any(ord(c) >= 0x0e00 and ord(c) <= 0x0e7f for c in cleaned_text):
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="th-TH",
+                    name="th-TH-Standard-A",  # Female voice
+                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+                )
+            else:
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-US",
+                    name="en-US-Neural2-F",
+                    ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+                )
+            
+            # Configure audio output
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=1.5,  # Faster speech - average human speed
+                pitch=0.0
+            )
+            
+            # Generate speech
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            
+            # Convert to base64 for JSON response
+            audio_base64 = base64.b64encode(response.audio_content).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'google-cloud-tts'
+            })
+            
+        except Exception as google_error:
+            logger.warning(f"Google Cloud TTS failed: {google_error}, falling back to OpenAI")
+            
+            # Option 3: Fallback to OpenAI TTS
+            from openai import OpenAI
+            
+            api_key = os.getenv("OPENAI_API_KEY")
+            
+            if not api_key:
+                return jsonify({
+                    'success': False,
+                    'error': 'No TTS service available. Please install gTTS: pip install gTTS'
+                }), 500
+            
+            client = OpenAI(api_key=api_key)
+            
+            # Generate speech with OpenAI using cleaned text
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice="nova",
+                input=cleaned_text,
+                speed=1.4  # Faster speech - average human speed
+            )
+            
+            audio_base64 = base64.b64encode(response.content).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'audio': audio_base64,
+                'format': 'mp3',
+                'provider': 'openai-tts'
+            })
+        
+    except Exception as e:
+        logger.exception("Error in text-to-speech")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 @app.route('/api/messages', methods=['POST'])
 def post_message():
     try:
@@ -512,6 +1052,7 @@ def firebase_config():
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
 
+<<<<<<< HEAD
 @app.route('/health')
 def health_check():
     """Health check endpoint with database status"""
@@ -572,6 +1113,9 @@ def db_info():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+=======
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
@@ -589,6 +1133,50 @@ def spa_fallback(path: str):
         return send_from_directory(folder, fname)
     abort(404)
 
+<<<<<<< HEAD
+=======
+@app.route('/api/image-proxy', methods=['GET'])
+def image_proxy():
+    """Proxy endpoint to serve Google Maps images and bypass CORS restrictions."""
+    try:
+        import requests
+        from io import BytesIO
+        
+        image_url = request.args.get('url')
+        if not image_url:
+            return jsonify({'error': 'URL parameter required'}), 400
+        
+        # Security: Only allow Google image URLs
+        if not image_url.startswith('https://lh3.googleusercontent.com'):
+            return jsonify({'error': 'Only Google image URLs are allowed'}), 403
+        
+        # Fetch the image from Google
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.google.com/'
+        }
+        response = requests.get(image_url, headers=headers, timeout=10, stream=True)
+        
+        if response.status_code != 200:
+            return jsonify({'error': 'Failed to fetch image'}), response.status_code
+        
+        # Determine content type
+        content_type = response.headers.get('Content-Type', 'image/jpeg')
+        
+        # Stream the image back to the client
+        return Response(
+            response.content,
+            mimetype=content_type,
+            headers={
+                'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+                'Access-Control-Allow-Origin': '*'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Image proxy error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
     try:

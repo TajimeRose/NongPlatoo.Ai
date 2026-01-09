@@ -1,5 +1,8 @@
 import { useState, useMemo } from "react";
+<<<<<<< HEAD
 import { useSearchParams } from "react-router-dom";
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 import { Search, Filter, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
 import PlaceCard from "@/components/PlaceCard";
 import { places, filterPlaces } from "@/data/places";
+<<<<<<< HEAD
 
 const districts = [
   { value: "amphawa", label: "อัมพวา", labelEn: "Amphawa" },
@@ -33,6 +37,25 @@ const Places = () => {
   );
   const [showFilters, setShowFilters] = useState(false);
 
+=======
+import { usePlaceFilters } from "@/hooks/usePlaceFilters";
+import { DISTRICTS, CATEGORIES, WATERMARK_CONFIG } from "@/data/placesConstants";
+
+const Places = () => {
+  const [showFilters, setShowFilters] = useState(false);
+
+  const {
+    search,
+    selectedDistrict,
+    selectedCategory,
+    setSearch,
+    handleDistrictChange,
+    handleCategoryChange,
+    clearFilters,
+    hasActiveFilters,
+  } = usePlaceFilters();
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   const filteredPlaces = useMemo(() => {
     return filterPlaces(
       selectedDistrict || undefined,
@@ -41,6 +64,7 @@ const Places = () => {
     );
   }, [selectedDistrict, selectedCategory, search]);
 
+<<<<<<< HEAD
   const handleDistrictChange = (district: string) => {
     const newDistrict = selectedDistrict === district ? "" : district;
     setSelectedDistrict(newDistrict);
@@ -69,10 +93,26 @@ const Places = () => {
 
   const hasActiveFilters = selectedDistrict || selectedCategory || search;
 
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
+<<<<<<< HEAD
+=======
+      {/* Work in Progress Watermark - Top Layer */}
+      <div className={WATERMARK_CONFIG.position}>
+        <div className="bg-amber-400 dark:bg-amber-600 text-amber-900 dark:text-amber-50 px-4 py-2 rounded-lg shadow-lg border-2 border-amber-500 dark:border-amber-400 rotate-12 font-bold text-sm flex items-center gap-2">
+          <span className="text-lg">{WATERMARK_CONFIG.icon}</span>
+          <div>
+            <div>{WATERMARK_CONFIG.text.main}</div>
+            <div className="text-xs">{WATERMARK_CONFIG.text.sub}</div>
+          </div>
+        </div>
+      </div>
+
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
       {/* Header */}
       <header className="pt-24 pb-8 bg-gradient-sky">
         <div className="container mx-auto px-4">
@@ -130,9 +170,14 @@ const Places = () => {
 
           {/* Filters */}
           <div
+<<<<<<< HEAD
             className={`mt-4 space-y-4 ${
               showFilters ? "block" : "hidden md:block"
             }`}
+=======
+            className={`mt-4 space-y-4 ${showFilters ? "block" : "hidden md:block"
+              }`}
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
           >
             {/* District Filter */}
             <div>
@@ -140,7 +185,11 @@ const Places = () => {
                 อำเภอ (District)
               </p>
               <div className="flex flex-wrap gap-2">
+<<<<<<< HEAD
                 {districts.map((district) => (
+=======
+                {DISTRICTS.map((district) => (
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                   <Button
                     key={district.value}
                     variant={
@@ -165,7 +214,11 @@ const Places = () => {
                 ประเภท (Category)
               </p>
               <div className="flex flex-wrap gap-2">
+<<<<<<< HEAD
                 {categories.map((category) => (
+=======
+                {CATEGORIES.map((category) => (
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                   <Button
                     key={category.value}
                     variant={
@@ -208,9 +261,14 @@ const Places = () => {
                   rating={place.rating}
                   tags={place.tags}
                   isOpen={place.isOpen}
+<<<<<<< HEAD
                   className={`animate-slide-up animation-delay-${
                     (index % 3) * 100
                   }`}
+=======
+                  className={`animate-slide-up animation-delay-${(index % 3) * 100
+                    }`}
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 />
               ))}
             </div>

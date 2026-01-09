@@ -1,15 +1,22 @@
 services:
   web:
     build: .
+<<<<<<< HEAD
     ports:
       - "9000:8000"
+=======
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     expose:
       - "8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - FLASK_ENV=production
       - PORT=8000
+<<<<<<< HEAD
       - DATABASE_URL=postgresql://postgres:PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr@38.242.132.39:5432/postgres
+=======
+      - DATABASE_URL=${DATABASE_URL}
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     restart: always
     depends_on:
       - db
@@ -17,6 +24,7 @@ services:
   db:
     image: postgres:15-alpine
     environment:
+<<<<<<< HEAD
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=PdQ0GiGzLIVN0VcY2tKSZtYqm7iiUMCEY7nLZghPF5DcZnZsXNhGtD1HJgjrqnRr
       - POSTGRES_DB=postgres
@@ -24,6 +32,15 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+=======
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:8900"
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 volumes:
   postgres_data:
