@@ -10,10 +10,6 @@ from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
-<<<<<<< HEAD
-from flask_jwt_extended import JWTManager
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 # Setup logging for debugging
 logging.basicConfig(
@@ -37,32 +33,6 @@ backend_env_path = os.path.join(backend_dir, '.env')
 if os.path.exists(backend_env_path):
     load_dotenv(backend_env_path, override=True)  # Load from backend/.env (takes priority)
 
-<<<<<<< HEAD
-# Default timeout for GPT calls to avoid worker hangs
-# Increased to 60 seconds to allow time for semantic model loading on first request
-CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", "60"))
-
-logger.info("=" * 70)
-logger.info("FLASK APP STARTUP - DATABASE CONNECTION CHECK")
-logger.info("=" * 70)
-logger.info(f"Python version: {sys.version}")
-logger.info(f"Working directory: {os.getcwd()}")
-logger.info(f"Backend directory: {backend_dir}")
-
-# Log environment status
-db_url = os.getenv("DATABASE_URL")
-if db_url:
-    # Mask password for security
-    masked = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
-    logger.info(f"✓ DATABASE_URL is set: {masked}")
-else:
-    logger.warning("✗ DATABASE_URL environment variable not found")
-
-logger.info(f"✓ POSTGRES_HOST: {os.getenv('POSTGRES_HOST', 'not set')}")
-logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
-logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
-logger.info("=" * 70)
-=======
 """Import constants and optional route handlers."""
 # Pre-bind names to avoid static analysis warnings when optional imports fail
 handle_api_query = None
@@ -119,7 +89,6 @@ else:
     logger.info(f"✓ POSTGRES_PORT: {os.getenv('POSTGRES_PORT', 'not set')}")
     logger.info(f"✓ POSTGRES_DB: {os.getenv('POSTGRES_DB', 'not set')}")
     logger.info("=" * 70)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 # Resolve static roots (prefer backend/static, then frontend/dist, then legacy ./static)
 BASE_DIR = os.path.dirname(__file__)
 STATIC_ROOTS = [
@@ -134,22 +103,29 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 CORS(app)
 
-<<<<<<< HEAD
-# JWT Setup
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'nong-platoo-secret-key')
-jwt = JWTManager(app)
+# JWT Setup for authentication
+try:
+    from flask_jwt_extended import JWTManager
+    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'nong-platoo-secret-key')
+    jwt = JWTManager(app)
+    logger.info("✓ JWT initialized successfully")
+except ImportError:
+    logger.warning("✗ flask_jwt_extended not installed - JWT auth disabled")
+except Exception as e:
+    logger.error(f"✗ JWT initialization failed: {e}")
 
-# Register blueprints
+# Register tracking routes blueprint
 try:
     from backend.routes import tracking_bp
     app.register_blueprint(tracking_bp)
     logger.info("✓ Tracking routes registered successfully")
+except ImportError:
+    logger.warning("✗ Tracking routes not available")
 except Exception as e:
     logger.error(f"✗ Failed to register tracking routes: {e}")
 
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 try:
+
     # Attempt to import chat utilities from either root or the 'backend' package.
     from backend.chat import chat_with_bot, get_chat_response
     logger.info("✓ Chat module imported successfully")
@@ -212,11 +188,6 @@ def index():
     found = _find_static_file('index.html')
     if found:
         folder, fname = found
-<<<<<<< HEAD
-        return send_from_directory(folder, fname)
-    abort(404)
-    
-=======
         return send_from_directory(folder, 'index.html')
     abort(404)
     
@@ -225,29 +196,21 @@ def health():
     """Simple health check endpoint."""
     return jsonify({'status': 'healthy', 'service': 'NongPlatoo.Ai'}), 200
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 @app.route('/assets/<path:path>')
 def send_assets(path):
     found = _find_asset_file(path)
     if found:
         folder, fname = found
-<<<<<<< HEAD
-        return send_from_directory(folder, fname)
-=======
         return send_from_directory(folder, path)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     abort(404)
 
 @app.route('/api/query', methods=['POST'])
 def api_query():
-<<<<<<< HEAD
-=======
     if handle_api_query:
         response_data, status_code = handle_api_query(get_chat_response)
         return jsonify(response_data), status_code
     
     # Fallback implementation
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -255,11 +218,6 @@ def api_query():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
-<<<<<<< HEAD
-        
-        # เรียกใช้ฟังก์ชันจาก module
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -272,27 +230,18 @@ def api_query():
             'tokens_used': result.get('tokens_used'),
             'timestamp': datetime.datetime.now().isoformat()
         })
-<<<<<<< HEAD
-    
-    except Exception as e:
-        print(f"[ERROR] /api/query failed: {e}")
-=======
     except Exception as e:
         logger.error(f"[ERROR] /api/query failed: {e}")
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
-<<<<<<< HEAD
-=======
     if handle_api_chat:
         response_data, status_code = handle_api_chat(chat_with_bot)
         return jsonify(response_data), status_code
     
     # Fallback implementation
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         data = request.get_json()
         if not data or 'message' not in data:
@@ -300,10 +249,6 @@ def api_chat():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
-<<<<<<< HEAD
-        
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         bot_response = chat_with_bot(user_message, user_id)
         
         return jsonify({
@@ -311,24 +256,17 @@ def api_chat():
             'response': bot_response,
             'timestamp': datetime.datetime.now().isoformat()
         })
-<<<<<<< HEAD
-    
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/visits', methods=['GET', 'POST'])
 def visits():
-<<<<<<< HEAD
-=======
     if handle_visits:
         response_data, status_code = handle_visits(normalize_path, increment_visit, get_counts)
         return jsonify(response_data), status_code
     
     # Fallback implementation
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     try:
         if request.method == 'POST':
             data = request.get_json(silent=True) or {}
@@ -349,21 +287,11 @@ def visits():
             'pages': counts.get('pages', {})
         })
     except Exception as e:
-<<<<<<< HEAD
-        print(f"[ERROR] /api/visits failed: {e}")
-=======
         logger.error(f"[ERROR] /api/visits failed: {e}")
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/messages', methods=['GET'])
 def get_messages():
-<<<<<<< HEAD
-    try:
-        return jsonify({
-            'success': True,
-            'messages': []
-=======
     """Get conversation history for a user"""
     try:
         from backend.conversation_memory import get_conversation_memory
@@ -378,14 +306,11 @@ def get_messages():
             'success': True,
             'messages': history,
             'count': len(history)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-<<<<<<< HEAD
-=======
 @app.route('/api/messages/clear', methods=['POST'])
 def clear_messages():
     """Clear conversation history for a user"""
@@ -784,7 +709,6 @@ def text_to_speech():
             'error': str(e)
         }), 500
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 @app.route('/api/messages', methods=['POST'])
 def post_message():
     try:
@@ -1052,70 +976,7 @@ def firebase_config():
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return response
 
-<<<<<<< HEAD
-@app.route('/health')
-def health_check():
-    """Health check endpoint with database status"""
-    try:
-        db_status = "unknown"
-        db_message = ""
-        
-        try:
-            # Try to connect to database
-            from backend.db import get_engine
-            from sqlalchemy import text
-            engine = get_engine()
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-                db_status = "connected"
-                db_message = "Database connection successful"
-                logger.info("✓ Health check: Database connected")
-        except Exception as e:
-            db_status = "disconnected"
-            db_message = str(e)
-            logger.error(f"✗ Health check: Database connection failed: {e}")
-        
-        return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.datetime.now().isoformat(),
-            'database': {
-                'status': db_status,
-                'message': db_message
-            }
-        })
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return jsonify({
-            'status': 'unhealthy',
-            'timestamp': datetime.datetime.now().isoformat(),
-            'error': str(e)
-        }), 500
 
-@app.route('/debug/db-info')
-def db_info():
-    """Debug endpoint showing database configuration (remove in production!)"""
-    try:
-        db_url = os.getenv("DATABASE_URL")
-        if db_url:
-            # Mask password for security
-            masked_url = db_url.split('@')[0] + '@****:****@' + db_url.split('@')[1] if '@' in db_url else db_url
-        else:
-            masked_url = "Not set"
-        
-        return jsonify({
-            'database_url': masked_url,
-            'postgres_host': os.getenv('POSTGRES_HOST', 'not set'),
-            'postgres_port': os.getenv('POSTGRES_PORT', 'not set'),
-            'postgres_db': os.getenv('POSTGRES_DB', 'not set'),
-            'postgres_user': os.getenv('POSTGRES_USER', 'not set'),
-            'environment': os.getenv('ENVIRONMENT', 'development'),
-            'note': 'This endpoint should be disabled in production'
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-=======
-
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
@@ -1133,8 +994,6 @@ def spa_fallback(path: str):
         return send_from_directory(folder, fname)
     abort(404)
 
-<<<<<<< HEAD
-=======
 @app.route('/api/image-proxy', methods=['GET'])
 def image_proxy():
     """Proxy endpoint to serve Google Maps images and bypass CORS restrictions."""
@@ -1176,7 +1035,6 @@ def image_proxy():
         logger.error(f"Image proxy error: {e}")
         return jsonify({'error': str(e)}), 500
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")
     try:

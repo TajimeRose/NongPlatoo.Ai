@@ -1,19 +1,11 @@
 {
   "matching": {
-<<<<<<< HEAD
-    "max_matches": 5,
-=======
     "max_matches": 12,
     "max_display": 8,
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     "strict_only": true,
     "use_ai_keywords": true
   },
   "fallback": {
     "show_table_when_no_match": false
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138

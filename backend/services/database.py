@@ -87,11 +87,7 @@ class DatabaseService:
                         Place.category.ilike(pattern),
                     )
                 )
-<<<<<<< HEAD
-                .order_by(Place.rating.desc().nullslast())
-=======
                 .order_by(Place.name.asc())
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             )
             
             places_result = session.execute(places_stmt)
@@ -99,11 +95,6 @@ class DatabaseService:
             
             results = [self._place_to_dict(place) for place in places]
             
-<<<<<<< HEAD
-            # Sort by rating and limit
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             return results[:limit]
 
     def search_attractions_only(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -135,11 +126,7 @@ class DatabaseService:
             if is_generic_query:
                 stmt = (
                     select(Place)
-<<<<<<< HEAD
-                    .order_by(Place.rating.desc().nullslast())
-=======
                     .order_by(Place.name.asc())
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                     .limit(limit)
                 )
             else:
@@ -155,11 +142,7 @@ class DatabaseService:
                             Place.category.ilike(pattern),
                         )
                     )
-<<<<<<< HEAD
-                    .order_by(Place.rating.desc().nullslast())
-=======
                     .order_by(Place.name.asc())
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                     .limit(limit)
                 )
             
@@ -184,34 +167,18 @@ class DatabaseService:
     def get_destinations_by_type(self, dest_type: str) -> List[Dict[str, Any]]:
         pattern = f"%{dest_type}%"
         with self.session() as session:
-<<<<<<< HEAD
-            # Search places table by category and tags
-            from sqlalchemy import cast, Text
-=======
             # Search places table by category and attraction_type
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             places_rows = session.execute(
                 select(Place).where(
                     or_(
                         Place.category.ilike(pattern),
-<<<<<<< HEAD
-                        cast(Place.tags, Text).ilike(pattern)
-                    )
-                ).order_by(Place.rating.desc().nullslast())
-=======
                         Place.attraction_type.ilike(pattern)
                     )
                 ).order_by(Place.name.asc())
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             )
             places = places_rows.scalars().all()
             
             results = [self._place_to_dict(place) for place in places]
-<<<<<<< HEAD
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
-            return results
-
-=======
             return results
 
     def search_main_attractions(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -276,7 +243,6 @@ class DatabaseService:
             results = [self._place_to_dict(place) for place in places]
             return results[:limit]
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     # ------------------------------------------------------------------
     # Trip plans & analytics (not yet backed by concrete tables)
     # ------------------------------------------------------------------

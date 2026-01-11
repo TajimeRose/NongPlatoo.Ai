@@ -2,10 +2,7 @@ import { cn } from "@/lib/utils";
 import { Bot, User, MapPin, Clock, Phone, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useState } from "react";
 import chatLogo from "@/assets/logochatน้องปลาทู.png";
-<<<<<<< HEAD
-=======
 import fallbackImage from "@/assets/hero-floating-market.jpg";
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 import { Button } from "@/components/ui/button";
 
 type StructuredPlace = {
@@ -18,11 +15,7 @@ type StructuredPlace = {
   location?: string | { district?: string; province?: string };
   category?: string;
   type?: string | string[];
-<<<<<<< HEAD
-  images?: string[];
-=======
   images?: string[] | string | any;
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   opening_hours?: string;
   contact?: string;
 };
@@ -57,8 +50,6 @@ const normalizeType = (type?: string | string[]): string | undefined => {
   return Array.isArray(type) ? type.join(", ") : type;
 };
 
-<<<<<<< HEAD
-=======
 const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: string }) => {
   const [imageErrored, setImageErrored] = useState(false);
 
@@ -99,8 +90,7 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
 
   const imageSrc = imageErrored || !primaryImage ? fallback : getProxiedImageUrl(primaryImage);
 
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    console.warn(`Image failed to load for ${name}:`, primaryImage);
+  const handleImageError = () => {
     setImageErrored(true);
   };
 
@@ -144,70 +134,10 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
   );
 };
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 const StructuredPlaces = ({ places }: { places: StructuredPlace[] }) => {
   if (!places.length) return null;
   return (
     <div className="mt-3 space-y-3">
-<<<<<<< HEAD
-      {places.map((place, index) => {
-        const name = place.place_name || place.name || "สถานที่";
-        const desc =
-          place.short_description ||
-          place.description ||
-          "ข้อมูลสถานที่เพิ่มเติม";
-        const typeLabel = place.category || normalizeType(place.type);
-        const locationText = formatLocation(place.location) || place.address;
-        const image = place.images?.[0];
-
-        return (
-          <div
-            key={place.id || `${name}-${index}`}
-            className="rounded-xl border border-border bg-muted/40 p-3"
-          >
-            <div className="flex items-start gap-3">
-              {image && (
-                <img
-                  src={image}
-                  alt={name}
-                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                  loading="lazy"
-                />
-              )}
-              <div className="space-y-1">
-                <p className="font-semibold text-foreground leading-tight">
-                  {name}
-                </p>
-                {typeLabel && (
-                  <p className="text-xs text-muted-foreground">{typeLabel}</p>
-                )}
-                <p className="text-sm text-foreground/80 leading-relaxed line-clamp-3">
-                  {desc}
-                </p>
-                {locationText && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>{locationText}</span>
-                  </div>
-                )}
-                {place.opening_hours && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{place.opening_hours}</span>
-                  </div>
-                )}
-                {place.contact && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>{place.contact}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-=======
       {places.map((place, index) => (
         <StructuredPlaceCard
           key={place.id || `${place.place_name || place.name || "place"}-${index}`}
@@ -215,7 +145,6 @@ const StructuredPlaces = ({ places }: { places: StructuredPlace[] }) => {
           fallback={fallbackImage}
         />
       ))}
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     </div>
   );
 };

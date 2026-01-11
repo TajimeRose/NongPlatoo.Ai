@@ -212,6 +212,36 @@ class MessageFeedback(Base):
         return f"MessageFeedback(id={self.id!r}, message_id={self.message_id!r}, feedback_type={self.feedback_type!r})"
 
 
+class UserActivityLog(Base):
+    """ORM model for tracking user activities (clicks, views, etc.)."""
+    
+    __tablename__ = "user_activity_logs"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String, nullable=True)  # NULL for anonymous users
+    action_type = Column(String, nullable=False)  # 'click', 'view', 'scroll', etc.
+    target_element = Column(String)  # Element that was interacted with
+    page_url = Column(Text)  # URL where action occurred
+    meta_data = Column(Text)  # JSON string for additional data
+    ip_address = Column(String)  # User's IP address
+    created_at = Column(DateTime, default=func.now())
+    
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "action_type": self.action_type,
+            "target_element": self.target_element,
+            "page_url": self.page_url,
+            "meta_data": self.meta_data,
+            "ip_address": self.ip_address,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"UserActivityLog(id={self.id!r}, action_type={self.action_type!r}, user_id={self.user_id!r})"
+
+
 def get_db_url() -> str:
     """Resolve the database URL.
 
