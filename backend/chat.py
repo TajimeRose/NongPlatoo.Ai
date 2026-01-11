@@ -6,21 +6,14 @@ import concurrent.futures
 import hashlib
 import json
 import logging
-<<<<<<< HEAD
-=======
 import os
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .configs import PromptRepo
-<<<<<<< HEAD
-from .db import get_db, Place, search_places
-=======
 from .db import get_db, Place, search_places, search_main_attractions, get_attractions_by_type
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 try:
     from .services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
@@ -54,18 +47,6 @@ if TYPE_CHECKING:
 else:
     FlexibleMatcherType = Any
 
-<<<<<<< HEAD
-PROMPT_REPO = PromptRepo()
-# DATA_FILE and other JSON constants removed
-
-logger = logging.getLogger(__name__)
-
-LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=[
-    "สมุทรสงคราม",
-    "samut songkhram"
-])
-DUPLICATE_WINDOW_SECONDS = 15
-=======
 from .constants import (
     TRAVEL_DATA_CACHE_TTL_SECONDS,
     RESPONSE_CACHE_TTL_SECONDS,
@@ -92,38 +73,25 @@ _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}  # Query hash -> response
 _RESPONSE_CACHE_TIME: Dict[str, float] = {}  # Query hash -> timestamp
 
 LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=DEFAULT_LOCAL_KEYWORDS)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 
 class TravelChatbot:
     """Chatbot powered solely by GPT (local data + prompts)."""
 
     def __init__(self) -> None:
-<<<<<<< HEAD
-=======
         global _TRAVEL_DATA_CACHE, _TRAVEL_DATA_CACHE_TIME
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         self.bot_name = "NongPlaToo"
         self.chatbot_prompts = PROMPT_REPO.get_prompt("chatbot/answer", default={})
         self.preferences = PROMPT_REPO.get_preferences()
         self.runtime_config = PROMPT_REPO.get_runtime_config()
         self.character_profile = PROMPT_REPO.get_character_profile()
-<<<<<<< HEAD
-        self.match_limit = self.runtime_config.get("matching", {}).get("max_matches", 5)
-        self.display_limit = self.runtime_config.get("matching", {}).get("max_display", 4)
-        self.gpt_service: Optional[Any] = None
-=======
         self.match_limit = self.runtime_config.get("matching", {}).get("max_matches", DEFAULT_MATCH_LIMIT)
         self.display_limit = self.runtime_config.get("matching", {}).get("max_display", DEFAULT_DISPLAY_LIMIT)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         self.gpt_service: Optional[Any] = None
         # self.image_links = self._load_image_links() # Removed
         # self.province_profile = self._load_province_profile() # Removed
         # raw_trip_guides = self._load_trip_guides() # Removed
-<<<<<<< HEAD
-        self.travel_data = self._load_travel_data_from_db()
-=======
         
         # Load travel data from cache or DB
         current_time = time.time()
@@ -134,7 +102,6 @@ class TravelChatbot:
             _TRAVEL_DATA_CACHE = self.travel_data
             _TRAVEL_DATA_CACHE_TIME = current_time
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         self.trip_guides = {
             entry["id"]: entry
             for entry in self.travel_data
@@ -156,14 +123,6 @@ class TravelChatbot:
             print("[WARN] GPT service unavailable")
 
     def _init_matcher(self) -> Optional[FlexibleMatcherType]:
-<<<<<<< HEAD
-        if not FLEXIBLE_MATCHER_AVAILABLE or FlexibleMatcher is None:
-            return None
-        try:
-            return FlexibleMatcher()
-        except Exception as exc:
-            print(f"[WARN] Cannot initialize flexible matcher: {exc}")
-=======
         global _MATCHER_CACHE, _MATCHER_CACHE_INITIALIZED
         
         if not FLEXIBLE_MATCHER_AVAILABLE or FlexibleMatcher is None:
@@ -181,16 +140,10 @@ class TravelChatbot:
             print(f"[WARN] Cannot initialize flexible matcher: {exc}")
             _MATCHER_CACHE = None
             _MATCHER_CACHE_INITIALIZED = True
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             return None
 
     @staticmethod
     def _detect_language(text: str) -> str:
-<<<<<<< HEAD
-        thai_chars = sum(1 for ch in text if "\u0e00" <= ch <= "\u0e7f")
-        # Prioritize Thai if any Thai characters are present or if text is short
-        return "th" if thai_chars > 0 else "en"
-=======
         """Detect if text is primarily Thai or English."""
         return detect_language(text)
 
@@ -259,7 +212,6 @@ class TravelChatbot:
             "keywords": extracted_keywords,
             "clean_question": clean_question
         }
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
     def _matcher_analysis(self, query: str) -> Dict[str, Any]:
         if not query.strip():
@@ -315,13 +267,8 @@ class TravelChatbot:
 
     @staticmethod
     def _normalized_query_key(text: str) -> str:
-<<<<<<< HEAD
-        collapsed = re.sub(r"\s+", " ", text.strip())
-        return collapsed.lower()
-=======
         """Normalize query text for caching purposes."""
         return normalize_whitespace(text).lower()
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
     def _replay_duplicate_response(self, user_id: str, key: str) -> Optional[Dict[str, Any]]:
         if not key:
@@ -345,11 +292,7 @@ class TravelChatbot:
             "result": payload,
         }
 
-<<<<<<< HEAD
-    def _auto_detect_keywords(self, query: str, limit: int = 6) -> List[str]:
-=======
     def _auto_detect_keywords(self, query: str, limit: int = DEFAULT_KEYWORD_DETECTION_LIMIT) -> List[str]:
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         if not query or not self.travel_data:
             return []
         normalized_query = self._normalize_name_token(query)
@@ -414,8 +357,6 @@ class TravelChatbot:
 
         return self._deduplicate_entries(entries)
 
-<<<<<<< HEAD
-=======
     def _google_search_fallback(
         self,
         query: str,
@@ -550,7 +491,6 @@ class TravelChatbot:
         
         return results
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 
 
@@ -786,8 +726,6 @@ class TravelChatbot:
             print(f"[WARN] Query interpretation failed: {exc}")
             return {"keywords": [], "places": []}
 
-<<<<<<< HEAD
-=======
     def _is_main_attractions_query(self, query: str) -> bool:
         """
         Detect if user is asking for PRIMARY/MAIN tourist attractions.
@@ -825,7 +763,6 @@ class TravelChatbot:
         
         return False
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     def _match_travel_data(
         self,
         query: str,
@@ -839,13 +776,10 @@ class TravelChatbot:
         normalizes the ``limit`` parameter into a concrete integer value before
         using it, preventing type errors when ``limit`` is ``None``.  It returns
         up to that number of results from the combined searches.
-<<<<<<< HEAD
-=======
         
         IMPORTANT: If the query asks for "main attractions" (สถานที่ท่องเที่ยว),
         filter ONLY by attraction_type='main_attraction' at SQL level.
         The AI WILL NOT reclassify places - database classification is final.
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         """
         # Normalize the limit to an integer.  If the caller doesn't specify a
         # limit, use the runtime-configured limit (self.match_limit) or fall back
@@ -855,10 +789,6 @@ class TravelChatbot:
             limit if isinstance(limit, int) and limit is not None else self.match_limit or 5
         )
 
-<<<<<<< HEAD
-        # Perform the initial DB search using the full query
-        results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
-=======
         # Check if user is asking specifically for main attractions
         is_main_attraction_query = self._is_main_attractions_query(query)
         
@@ -869,7 +799,6 @@ class TravelChatbot:
             results: List[Dict[str, Any]] = search_main_attractions(query, limit=limit_value)
         else:
             results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
         # If the caller provided additional keywords, search each keyword and
         # merge any new results until we reach the limit.  Use a small fixed
@@ -878,14 +807,10 @@ class TravelChatbot:
             for kw in keywords:
                 if len(results) >= limit_value:
                     break
-<<<<<<< HEAD
-                kw_results = search_places(kw, limit=2)
-=======
                 if is_main_attraction_query:
                     kw_results = search_main_attractions(kw, limit=2)
                 else:
                     kw_results = search_places(kw, limit=2)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 for res in kw_results:
                     # Avoid adding duplicates by checking the 'id' field
                     if not any(r.get('id') == res.get('id') for r in results):
@@ -894,8 +819,6 @@ class TravelChatbot:
         # Trim the final result list to the normalized limit
         return results[:limit_value]
 
-<<<<<<< HEAD
-=======
     def _add_classification_context(self, results: List[Dict[str, Any]]) -> str:
         """
         Build context string explaining the database classifications of results.
@@ -956,7 +879,6 @@ class TravelChatbot:
         
         return "\n".join(lines)
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     def _select_trip_guides_for_query(
         self,
         query: str,
@@ -1008,8 +930,6 @@ class TravelChatbot:
             merged[self._entry_identifier(entry)] = entry
         return list(merged.values())
 
-<<<<<<< HEAD
-=======
     def _is_specific_place_query(self, query: str, matched_data: List[Dict[str, Any]]) -> bool:
         """Detect if user is asking about a specific place vs a category/type."""
         if not matched_data:
@@ -1061,17 +981,10 @@ class TravelChatbot:
         
         return False
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     def _trim_structured_results(
         self,
         entries: List[Dict[str, Any]],
         limit: Optional[int] = None,
-<<<<<<< HEAD
-    ) -> List[Dict[str, Any]]:
-        if not entries:
-            return []
-        max_count = limit or self.display_limit or self.match_limit or 5
-=======
         is_specific_place: bool = False,
     ) -> List[Dict[str, Any]]:
         if not entries:
@@ -1084,7 +997,6 @@ class TravelChatbot:
             # Category/general queries get 4-5 results
             max_count = limit if limit is not None else (self.display_limit or 4)
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         trimmed: List[Dict[str, Any]] = []
         seen: set[str] = set()
         for entry in entries:
@@ -1172,26 +1084,12 @@ class TravelChatbot:
             parts.append("Knowledge scope: " + ", ".join(profile["knowledge_scope"]))
         return " | ".join(parts)
 
-<<<<<<< HEAD
-    def _create_simple_response(self, context_data: List[Dict], language: str) -> str:
-=======
     def _create_simple_response(self, context_data: List[Dict], language: str, is_specific_place: bool = False) -> str:
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         if not context_data:
             return self._prompt_path(
                 language,
                 ("simple_response", "no_data"),
                 default_th=(
-<<<<<<< HEAD
-                    "สวัสดีค่ะ! ขออภัยที่ตอนนี้ระบบ AI กำลังมีปัญหาชั่วคราว "
-                    "แต่น้องปลาทูยังพร้อมให้ข้อมูลการท่องเที่ยวสมุทรสงครามให้คุณนะคะ "
-                    "ลองถามเกี่ยวกับสถานที่ท่องเที่ยว ร้านอาหาร หรือที่พักในสมุทรสงครามได้เลยค่ะ"
-                ),
-                default_en=(
-                    "Hello! I apologize for the temporary AI system issue, but I'm still ready "
-                    "to provide tourism information about Samut Songkhram. Feel free to ask "
-                    "about attractions, restaurants, or accommodations!"
-=======
                     "น้องปลาทูพร้อมให้ข้อมูลการท่องเที่ยวสมุทรสงครามให้คุณนะคะ "
                     "ลองถามเกี่ยวกับสถานที่ท่องเที่ยว ร้านอาหาร หรือที่พักในสมุทรสงครามได้เลยค่ะ "
                     "(ขออภัยที่ตอนนี้ยังไม่พบข้อมูลที่ตรงกับคำถามในฐานข้อมูล)"
@@ -1200,7 +1098,6 @@ class TravelChatbot:
                     "I'm ready to provide tourism information about Samut Songkhram. "
                     "Feel free to ask about attractions, restaurants, or accommodations! "
                     "(Sorry, no matching data found in the database right now)"
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 )
             )
 
@@ -1215,46 +1112,17 @@ class TravelChatbot:
             highlights = entry.get("highlights") or entry.get("place_information", {}).get("highlights") or []
             best_time = entry.get("best_time") or entry.get("place_information", {}).get("best_time")
             tips = entry.get("tips") or entry.get("place_information", {}).get("tips")
-<<<<<<< HEAD
-=======
             opening_hours = entry.get("opening_hours") or ""
             price_range = entry.get("price_range") or ""
             address = entry.get("address") or ""
             rating = entry.get("rating") or entry.get("place_information", {}).get("rating")
             attraction_type = entry.get("attraction_type", "")
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
             def join_highlights(items: Any) -> str:
                 if isinstance(items, list):
                     return ", ".join(str(item) for item in items[:3])
                 return str(items)
 
-<<<<<<< HEAD
-            if language == "th":
-                lines = [f"{idx}. {name}"]
-                if location:
-                    lines.append(f"   พื้นที่: {location}")
-                if description:
-                    lines.append(f"   จุดเด่น: {description}")
-                if highlights:
-                    lines.append(f"   ไฮไลต์: {join_highlights(highlights)}")
-                if best_time:
-                    lines.append(f"   เวลาแนะนำ: {best_time}")
-                if tips:
-                    lines.append(f"   เคล็ดลับ: {join_highlights(tips)}")
-            else:
-                lines = [f"{idx}. {name}"]
-                if location:
-                    lines.append(f"   Area: {location}")
-                if description:
-                    lines.append(f"   Why visit: {description}")
-                if highlights:
-                    lines.append(f"   Highlights: {join_highlights(highlights)}")
-                if best_time:
-                    lines.append(f"   Best time: {best_time}")
-                if tips:
-                    lines.append(f"   Tips: {join_highlights(tips)}")
-=======
             # For specific place queries, provide guide-like detailed information
             if is_specific_place and len(context_data) == 1:
                 if language == "th":
@@ -1323,7 +1191,6 @@ class TravelChatbot:
                         lines.append(f"   ✨ {join_highlights(highlights)}")
                     if best_time:
                         lines.append(f"   ⏰ {best_time}")
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             return "\n".join(lines)
 
         intro_template = self._prompt_path(
@@ -1360,14 +1227,10 @@ class TravelChatbot:
             remaining_note = ""
 
         body = "\n\n".join(summaries)
-<<<<<<< HEAD
-        return f"{intro_template.format(count=len(context_data))}\n\n{body}{remaining_note}{outro}"
-=======
         if is_specific_place and len(context_data) == 1:
             return f"{intro_template}\n\n{body}{outro}"
         else:
             return f"{intro_template.format(count=len(context_data))}\n\n{body}{remaining_note}{outro}"
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
     def _prompt(self, key: str, language: str, *, default_th: str = "", default_en: str = "") -> str:
         return self._prompt_path(language, (key,), default_th=default_th, default_en=default_en)
@@ -1490,8 +1353,6 @@ class TravelChatbot:
         trimmed_query = user_message.strip()
         normalized_query = trimmed_query.lower()
         dedup_key = self._normalized_query_key(trimmed_query) if trimmed_query else ""
-<<<<<<< HEAD
-=======
         
         # Check response cache first (global level for common queries)
         global _RESPONSE_CACHE, _RESPONSE_CACHE_TIME
@@ -1506,23 +1367,18 @@ class TravelChatbot:
                 _RESPONSE_CACHE_TIME.pop(dedup_key, None)
         
         # Check user-specific duplicate cache
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         cached_payload = self._replay_duplicate_response(user_id, dedup_key)
         if cached_payload:
             return cached_payload
 
         def finalize_response(payload: Dict[str, Any]) -> Dict[str, Any]:
             self._cache_response(user_id, dedup_key, payload)
-<<<<<<< HEAD
-            return payload
-=======
             # Also cache at global level for common queries
             if dedup_key:
                 _RESPONSE_CACHE[dedup_key] = dict(payload)
                 _RESPONSE_CACHE_TIME[dedup_key] = time.time()
             return payload
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         greetings_th = ("สวัสดี", "หวัดดี", "ดีจ้า", "สวัสดีค่ะ", "สวัสดีครับ")
         greetings_en = ("hello", "hi", "hey", "greetings")
         if trimmed_query and any(word in normalized_query for word in greetings_th + greetings_en):
@@ -1553,11 +1409,6 @@ class TravelChatbot:
                 }
             })
 
-<<<<<<< HEAD
-        analysis = self._interpret_query_keywords(user_message) if trimmed_query else {"keywords": [], "places": []}
-        matcher_signals = self._matcher_analysis(user_message)
-        keyword_pool = self._merge_keywords(
-=======
         # Step 2: INTENT CLASSIFICATION
         intent_classification = self._classify_intent(user_message)
         intent_type = intent_classification["intent_type"]
@@ -1576,7 +1427,6 @@ class TravelChatbot:
         
         keyword_pool = self._merge_keywords(
             intent_classification.get("keywords") or [],
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             analysis.get("keywords") or [],
             analysis.get("places") or [],
             matcher_signals.get("keywords") or [],
@@ -1620,9 +1470,6 @@ class TravelChatbot:
         )
         if trip_matches:
             matched_data = self._merge_structured_data(matched_data, trip_matches)
-<<<<<<< HEAD
-        matched_data = self._trim_structured_results(matched_data)
-=======
         
         # Detect if this is a specific place query vs category query
         is_specific_place = self._is_specific_place_query(user_message, matched_data)
@@ -1630,7 +1477,6 @@ class TravelChatbot:
         # Trim results based on query type (1 for specific place, 4-5 for categories)
         matched_data = self._trim_structured_results(matched_data, is_specific_place=is_specific_place)
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         preference_note = self._preference_context()
         character_note = self._character_context()
         includes_local_term = self._contains_local_reference(user_message)
@@ -1638,8 +1484,6 @@ class TravelChatbot:
             includes_local_term = any(self._contains_local_reference(str(keyword)) for keyword in keyword_pool)
         if matcher_signals.get("is_local"):
             includes_local_term = True
-<<<<<<< HEAD
-=======
         
         # Google Search Fallback: If no data found in database, try web search
         if not matched_data and includes_local_term:
@@ -1663,18 +1507,10 @@ class TravelChatbot:
                 import traceback
                 traceback.print_exc()
         
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
         mentions_other_province = (
             not includes_local_term
             and self._mentions_other_province(user_message, keyword_pool, analysis.get("places", []))
         )
-<<<<<<< HEAD
-        detected_intent = self._intent_from_topic(matcher_signals.get("topic"))
-        data_status = {
-            'success': bool(matched_data),
-            'message': (
-                f"Matched {len(matched_data)} Samut Songkhram entries using keywords: {keyword_pool}"
-=======
         detected_intent = intent_type  # Use new intent classification (specific/general)
         data_status = {
             'intent_type': intent_type,  # Add intent type to status
@@ -1682,16 +1518,11 @@ class TravelChatbot:
             'message': (
                 f"Matched {len(matched_data)} entries" + 
                 (" from web search" if matched_data and matched_data[0].get('source') == 'google_search' else " using keywords: " + str(keyword_pool))
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 if matched_data else
                 f"No Samut Songkhram entries matched for keywords: {keyword_pool}"
             ),
             'data_available': bool(matched_data),
-<<<<<<< HEAD
-            'source': 'local_json',
-=======
             'source': 'google_search_fallback' if (matched_data and matched_data[0].get('source') == 'google_search') else 'local_json',
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             'preference_note': preference_note,
             'character_note': character_note,
             'matching_signals': {
@@ -1737,18 +1568,11 @@ class TravelChatbot:
         if self.gpt_service:
             try:
                 gpt_result = self.gpt_service.generate_response(
-<<<<<<< HEAD
-                    user_query=user_message,
-                    context_data=matched_data,
-                    data_type='travel',
-                    intent=detected_intent,
-=======
                     user_query=clean_question,
                     context_data=matched_data,
                     data_type='travel',
                     intent=detected_intent,
                     intent_type=intent_type,
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                     data_status=data_status
                 )
 
@@ -1765,11 +1589,7 @@ class TravelChatbot:
                 
             except Exception as e:
                 print(f"[ERROR] GPT generation failed: {e}")
-<<<<<<< HEAD
-                simple_response = self._create_simple_response(matched_data, language)
-=======
                 simple_response = self._create_simple_response(matched_data, language, is_specific_place=is_specific_place)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 return finalize_response({
                     'response': simple_response,
                     'structured_data': matched_data,
@@ -1780,11 +1600,7 @@ class TravelChatbot:
                     'data_status': data_status
                 })
         else:
-<<<<<<< HEAD
-            simple_response = self._create_simple_response(matched_data, language)
-=======
             simple_response = self._create_simple_response(matched_data, language, is_specific_place=is_specific_place)
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
             return finalize_response({
                 'response': simple_response,
                 'structured_data': matched_data,

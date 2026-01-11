@@ -1,8 +1,4 @@
 import { useState, useMemo } from "react";
-<<<<<<< HEAD
-import { useSearchParams } from "react-router-dom";
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 import { Search, Filter, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,34 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
 import PlaceCard from "@/components/PlaceCard";
 import { places, filterPlaces } from "@/data/places";
-<<<<<<< HEAD
-
-const districts = [
-  { value: "amphawa", label: "อัมพวา", labelEn: "Amphawa" },
-  { value: "mueang", label: "เมือง", labelEn: "Mueang" },
-  { value: "bang-khonthi", label: "บางคนที", labelEn: "Bang Khonthi" },
-];
-
-const categories = [
-  { value: "market", label: "ตลาด", labelEn: "Market" },
-  { value: "temple", label: "วัด", labelEn: "Temple" },
-  { value: "cafe", label: "คาเฟ่", labelEn: "Café" },
-  { value: "homestay", label: "โฮมสเตย์", labelEn: "Homestay" },
-  { value: "photo-spot", label: "จุดถ่ายรูป", labelEn: "Photo Spot" },
-];
-
-const Places = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [search, setSearch] = useState("");
-  const [selectedDistrict, setSelectedDistrict] = useState<string>(
-    searchParams.get("district") || ""
-  );
-  const [selectedCategory, setSelectedCategory] = useState<string>(
-    searchParams.get("category") || ""
-  );
-  const [showFilters, setShowFilters] = useState(false);
-
-=======
 import { usePlaceFilters } from "@/hooks/usePlaceFilters";
 import { DISTRICTS, CATEGORIES, WATERMARK_CONFIG } from "@/data/placesConstants";
 
@@ -55,7 +23,6 @@ const Places = () => {
     hasActiveFilters,
   } = usePlaceFilters();
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   const filteredPlaces = useMemo(() => {
     return filterPlaces(
       selectedDistrict || undefined,
@@ -64,43 +31,10 @@ const Places = () => {
     );
   }, [selectedDistrict, selectedCategory, search]);
 
-<<<<<<< HEAD
-  const handleDistrictChange = (district: string) => {
-    const newDistrict = selectedDistrict === district ? "" : district;
-    setSelectedDistrict(newDistrict);
-    updateSearchParams(newDistrict, selectedCategory);
-  };
-
-  const handleCategoryChange = (category: string) => {
-    const newCategory = selectedCategory === category ? "" : category;
-    setSelectedCategory(newCategory);
-    updateSearchParams(selectedDistrict, newCategory);
-  };
-
-  const updateSearchParams = (district: string, category: string) => {
-    const params = new URLSearchParams();
-    if (district) params.set("district", district);
-    if (category) params.set("category", category);
-    setSearchParams(params);
-  };
-
-  const clearFilters = () => {
-    setSelectedDistrict("");
-    setSelectedCategory("");
-    setSearch("");
-    setSearchParams(new URLSearchParams());
-  };
-
-  const hasActiveFilters = selectedDistrict || selectedCategory || search;
-
-=======
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
-<<<<<<< HEAD
-=======
       {/* Work in Progress Watermark - Top Layer */}
       <div className={WATERMARK_CONFIG.position}>
         <div className="bg-amber-400 dark:bg-amber-600 text-amber-900 dark:text-amber-50 px-4 py-2 rounded-lg shadow-lg border-2 border-amber-500 dark:border-amber-400 rotate-12 font-bold text-sm flex items-center gap-2">
@@ -112,7 +46,6 @@ const Places = () => {
         </div>
       </div>
 
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
       {/* Header */}
       <header className="pt-24 pb-8 bg-gradient-sky">
         <div className="container mx-auto px-4">
@@ -170,14 +103,8 @@ const Places = () => {
 
           {/* Filters */}
           <div
-<<<<<<< HEAD
-            className={`mt-4 space-y-4 ${
-              showFilters ? "block" : "hidden md:block"
-            }`}
-=======
             className={`mt-4 space-y-4 ${showFilters ? "block" : "hidden md:block"
               }`}
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
           >
             {/* District Filter */}
             <div>
@@ -185,11 +112,7 @@ const Places = () => {
                 อำเภอ (District)
               </p>
               <div className="flex flex-wrap gap-2">
-<<<<<<< HEAD
-                {districts.map((district) => (
-=======
                 {DISTRICTS.map((district) => (
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                   <Button
                     key={district.value}
                     variant={
@@ -214,11 +137,7 @@ const Places = () => {
                 ประเภท (Category)
               </p>
               <div className="flex flex-wrap gap-2">
-<<<<<<< HEAD
-                {categories.map((category) => (
-=======
                 {CATEGORIES.map((category) => (
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                   <Button
                     key={category.value}
                     variant={
@@ -261,14 +180,8 @@ const Places = () => {
                   rating={place.rating}
                   tags={place.tags}
                   isOpen={place.isOpen}
-<<<<<<< HEAD
-                  className={`animate-slide-up animation-delay-${
-                    (index % 3) * 100
-                  }`}
-=======
                   className={`animate-slide-up animation-delay-${(index % 3) * 100
                     }`}
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
                 />
               ))}
             </div>

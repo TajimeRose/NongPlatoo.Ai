@@ -1,13 +1,4 @@
 {
-<<<<<<< HEAD
-  "total": 111,
-  "pages": {
-    "/": 48,
-    "/chat": 30,
-    "/auth": 4,
-    "/places": 24,
-    "/places/:id": 5
-=======
   "total": 228,
   "pages": {
     "/": 89,
@@ -15,6 +6,5 @@
     "/auth": 4,
     "/places": 47,
     "/places/:id": 15
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
   }
 }

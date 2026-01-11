@@ -7,18 +7,6 @@
       "gpt-4o-reasoning"
     ],
     "chat": {
-<<<<<<< HEAD
-      "temperature": 0.7,
-      "max_completion_tokens": 800,
-      "top_p": 1.0,
-      "presence_penalty": 0.1,
-      "frequency_penalty": 0.1
-    },
-    "greeting": {
-      "temperature": 0.8,
-      "max_completion_tokens": 150,
-      "top_p": 1.0
-=======
       "temperature": 0.8,
       "max_completion_tokens": 2000,
       "top_p": 0.95,
@@ -31,7 +19,6 @@
       "max_completion_tokens": 250,
       "top_p": 1.0,
       "timeout_seconds": 60
->>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
     }
   }
 }
