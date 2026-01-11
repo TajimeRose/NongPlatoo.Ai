@@ -7,47 +7,14 @@ from sqlalchemy import text
 from world_journey_ai.db import get_engine
 
 def get_data_path():
-    """Get the path to tourist_places.json using multiple fallback strategies."""
+    """Get the path to tourist_places.json."""
+    # Look in Data folder relative to this script
+    data_file = Path(__file__).parent / "Data" / "tourist_places.json"
+    if data_file.exists():
+        print(f"✅ Found data: {data_file}")
+        return data_file
     
-    # Method 1: Try importlib.resources (best for packaged apps)
-    try:
-        if sys.version_info >= (3, 9):
-            from importlib.resources import files
-        else:
-            from importlib_resources import files
-        
-        data_file = files('world_journey_ai').joinpath('data', 'tourist_places.json')
-        if data_file.is_file():
-            print(f"✅ Found data using importlib.resources: {data_file}")
-            return data_file
-    except Exception as e:
-        print(f"⚠️ importlib.resources failed: {e}")
-    
-    # Method 2: Relative to script file (works in development)
-    script_based = Path(__file__).parent / "world_journey_ai" / "data" / "tourist_places.json"
-    if script_based.exists():
-        print(f"✅ Found data relative to script: {script_based}")
-        return script_based
-    
-    # Method 3: Using package __file__ location
-    try:
-        import world_journey_ai
-        package_dir = Path(world_journey_ai.__file__).parent
-        package_based = package_dir / "data" / "tourist_places.json"
-        if package_based.exists():
-            print(f"✅ Found data using package location: {package_based}")
-            return package_based
-    except Exception as e:
-        print(f"⚠️ Package-based lookup failed: {e}")
-    
-    # If nothing worked, raise error
-    raise FileNotFoundError(
-        f"Cannot find tourist_places.json\n"
-        f"Tried:\n"
-        f"  1. importlib.resources\n"
-        f"  2. {script_based}\n"
-        f"  3. Package-based lookup"
-    )
+    raise FileNotFoundError(f"Cannot find tourist_places.json at {data_file}")
 
 DATA_PATH = get_data_path()
 

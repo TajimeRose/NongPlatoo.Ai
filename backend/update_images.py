@@ -83,7 +83,7 @@ def process_place(place):
     return place
 
 def main():
-    file_path = "c:/Users/Tuchtuntan/Desktop/World.Journey.Ai/world_journey_ai/configs/Imagelink.json"
+    file_path = os.path.join(os.path.dirname(__file__), 'configs', 'Imagelink.json')
     
     try:
         with open(file_path, 'r', encoding='utf-8') as f:

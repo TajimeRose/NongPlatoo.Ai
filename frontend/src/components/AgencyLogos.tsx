@@ -47,10 +47,10 @@ const AgencyLogos = () => {
             <div className="container mx-auto px-4">
                 <div className="text-center mb-10">
                     <p className="text-sm font-medium text-muted-foreground mb-2">
-                        หน่วยงานสนับสนุน
+                        Logos 
                     </p>
                     <h3 className="text-2xl font-bold text-foreground">
-                        Logos / Partners
+                        หน่วยงานรัฐที่สนับสนุนข้อมูลและทดสอบระบบ
                     </h3>
                 </div>
 

@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
-import { MapPin, Star, Clock } from "lucide-react";
+import { MapPin, Star, Clock, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
+import { getPlaceViews, incrementPlaceViews, formatViewCount } from "@/utils/viewCounter";
 
 interface PlaceCardProps {
   id: string;
@@ -26,9 +28,23 @@ const PlaceCard = ({
   isOpen = true,
   className,
 }: PlaceCardProps) => {
+  const [viewCount, setViewCount] = useState(0);
+
+  useEffect(() => {
+    // Load initial view count
+    setViewCount(getPlaceViews(id));
+  }, [id]);
+
+  const handleClick = () => {
+    // Increment view count when card is clicked
+    const newCount = incrementPlaceViews(id);
+    setViewCount(newCount);
+  };
+
   return (
     <Link
       to={`/places/${id}`}
+      onClick={handleClick}
       className={cn("group block card-hover", className)}
     >
       <div className="bg-card rounded-2xl overflow-hidden shadow-card">
@@ -39,7 +55,7 @@ const PlaceCard = ({
             alt={nameTh}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
-          
+
           {/* Status Badge */}
           <div className="absolute top-3 left-3">
             <Badge
@@ -55,10 +71,15 @@ const PlaceCard = ({
           </div>
 
           {/* Rating */}
-          <div className="absolute top-3 right-3">
+          <div className="absolute top-3 right-3 flex flex-col gap-2">
             <div className="flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-1 rounded-full">
               <Star className="w-3.5 h-3.5 fill-golden text-golden" />
               <span className="text-sm font-medium text-foreground">{rating.toFixed(1)}</span>
+            </div>
+            {/* View Count */}
+            <div className="flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-1 rounded-full">
+              <Eye className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs font-medium text-foreground">{formatViewCount(viewCount)}</span>
             </div>
           </div>
         </div>
@@ -69,7 +90,7 @@ const PlaceCard = ({
             {nameTh}
           </h3>
           <p className="text-muted-foreground text-sm mb-2">{name}</p>
-          
+
           <div className="flex items-center gap-1 text-muted-foreground text-sm mb-3">
             <MapPin className="w-4 h-4 text-secondary" />
             <span className="line-clamp-1">{location}</span>

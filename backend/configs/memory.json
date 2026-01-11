@@ -1,0 +1,18 @@
+{
+    "conversation_memory": {
+        "enabled": true,
+        "max_messages_per_user": 10,
+        "ttl_seconds": 1800,
+        "description": "Conversation memory settings for short-term context retention",
+        "notes": [
+            "max_messages_per_user: Number of message pairs (user + assistant) to keep",
+            "ttl_seconds: Time in seconds before conversation expires (1800 = 30 minutes)",
+            "Total messages stored = max_messages_per_user * 2 (user + assistant)"
+        ]
+    },
+    "context_limits": {
+        "max_history_in_request": 10,
+        "max_tokens_estimate": 2000,
+        "description": "Limits for including history in OpenAI requests"
+    }
+}

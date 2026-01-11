@@ -1,0 +1,32 @@
+{
+    "provider": "google-cloud",
+    "google_cloud": {
+        "language_code": "th-TH",
+        "voice_name": "th-TH-Standard-A",
+        "speaking_rate": 1.5,
+        "pitch": 0.0,
+        "audio_encoding": "MP3",
+        "alternative_voices": [
+            {
+                "name": "th-TH-Standard-A",
+                "gender": "FEMALE",
+                "description": "Standard Thai female voice - clear and natural"
+            },
+            {
+                "name": "th-TH-Neural2-C",
+                "gender": "FEMALE",
+                "description": "Neural Thai female voice - more expressive (if available)"
+            }
+        ]
+    },
+    "openai_fallback": {
+        "model": "tts-1",
+        "voice": "nova",
+        "speed": 1.4
+    },
+    "settings": {
+        "auto_detect_language": true,
+        "max_text_length": 4096,
+        "cache_enabled": true
+    }
+}

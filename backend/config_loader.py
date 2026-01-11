@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from world_journey_ai.configs import PromptRepo
+from configs import PromptRepo
 
 _PROMPT_REPO = PromptRepo()
 
