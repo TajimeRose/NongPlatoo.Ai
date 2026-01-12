@@ -171,7 +171,7 @@ except Exception as e:
 try:
 
     # Attempt to import chat utilities from either root or the 'backend' package.
-    from backend.chat import chat_with_bot, get_chat_response
+    from backend.chat import chat_with_bot, chat_with_bot_stream, get_chat_response
     logger.info("✓ Chat module imported successfully")
 except Exception as e:
     # Fallback definitions to prevent NameError if imports fail. These will
@@ -179,6 +179,9 @@ except Exception as e:
     logger.error(f"✗ Failed to import chat module: {e}")
     def chat_with_bot(message: str, user_id: str = "default") -> str:
         raise RuntimeError(f"Chat module unavailable: {e}")
+    
+    def chat_with_bot_stream(message: str, user_id: str = "default"):
+        yield {"type": "error", "message": f"Chat module unavailable: {e}"}
 
     def get_chat_response(message: str, user_id: str = "default") -> dict:
         return {
@@ -281,6 +284,33 @@ def api_query():
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
+    """Streaming chat endpoint - returns SSE stream."""
+    try:
+        data = request.get_json()
+        if not data or 'message' not in data:
+            return jsonify({'error': 'Message is required'}), 400
+        
+        user_message = data['message']
+        user_id = data.get('user_id', 'default')
+        
+        def generate():
+            """Generator function for SSE streaming."""
+            try:
+                for chunk in chat_with_bot_stream(user_message, user_id):
+                    yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+            except Exception as e:
+                logger.exception("Error in chat streaming")
+                yield "data: " + json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False) + "\n\n"
+        
+        return Response(generate(), mimetype='text/event-stream')
+    except Exception as e:
+        logger.error(f"[ERROR] /api/chat failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/sync', methods=['POST'])
+def api_chat_sync():
+    """Non-streaming chat endpoint for backward compatibility - returns complete JSON response."""
     if handle_api_chat:
         response_data, status_code = handle_api_chat(chat_with_bot)
         return jsonify(response_data), status_code

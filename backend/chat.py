@@ -1610,6 +1610,109 @@ class TravelChatbot:
                 'data_status': data_status
             })
 
+    def get_response_stream(self, user_message: str, user_id: str = "default"):
+        """Stream response chunks for gradual text output."""
+        language = self._detect_language(user_message)
+        self._refresh_settings()
+        trimmed_query = user_message.strip()
+        normalized_query = trimmed_query.lower()
+        
+        # Handle greetings
+        greetings_th = ("สวัสดี", "หวัดดี", "ดีจ้า", "สวัสดีค่ะ", "สวัสดีครับ")
+        greetings_en = ("hello", "hi", "hey", "greetings")
+        if trimmed_query and any(word in normalized_query for word in greetings_th + greetings_en):
+            greeting_profile = self.character_profile.get("greeting", {}) if self.character_profile else {}
+            if language == "th":
+                greeting_text = greeting_profile.get(
+                    "th",
+                    "สวัสดีค่ะ! น้องปลาทูพร้อมช่วยแนะนำทริปในสมุทรสงครามให้เลยค่ะ"
+                )
+            else:
+                greeting_text = greeting_profile.get(
+                    "en",
+                    "Hello! I'm Nong Pla Too, happy to help plan your Samut Songkhram adventures!"
+                )
+            yield {"type": "text", "text": greeting_text}
+            yield {"type": "done", "language": language, "source": "greeting"}
+            return
+
+        # Intent classification
+        intent_classification = self._classify_intent(user_message)
+        intent_type = intent_classification["intent_type"]
+        clean_question = intent_classification["clean_question"]
+        
+        # Send intent info
+        yield {"type": "intent", "intent_type": intent_type}
+        
+        # Analyze and match data
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            analysis_future = executor.submit(self._interpret_query_keywords, clean_question) if trimmed_query else None
+            matcher_future = executor.submit(self._matcher_analysis, clean_question)
+            
+            analysis = analysis_future.result() if analysis_future else {"keywords": [], "places": []}
+            matcher_signals = matcher_future.result()
+        
+        keyword_pool = self._merge_keywords(
+            intent_classification.get("keywords") or [],
+            analysis.get("keywords") or [],
+            analysis.get("places") or [],
+            matcher_signals.get("keywords") or [],
+        )
+        
+        if not keyword_pool:
+            fallback_keywords = self._auto_detect_keywords(user_message)
+            if fallback_keywords:
+                keyword_pool = self._merge_keywords(keyword_pool, fallback_keywords)
+
+        matched_data = self._match_travel_data(user_message, keywords=keyword_pool, boost_keywords=matcher_signals.get("keywords"))
+        
+        # Send structured data
+        if matched_data:
+            yield {"type": "structured_data", "data": matched_data[:5]}
+        
+        preference_note = self._preference_context()
+        character_note = self._character_context()
+        
+        data_status = {
+            'intent_type': intent_type,
+            'success': bool(matched_data),
+            'message': f"Matched {len(matched_data)} entries" if matched_data else "No matches found",
+            'data_available': bool(matched_data),
+            'source': 'local_json',
+            'preference_note': preference_note,
+            'character_note': character_note,
+        }
+        
+        # Check for empty query
+        if not user_message.strip():
+            simple_msg = self._prompt("empty_query", language, 
+                                     default_th="กรุณาพิมพ์คำถามเกี่ยวกับการท่องเที่ยวในสมุทรสงครามนะคะ",
+                                     default_en="Please share a travel question for Samut Songkhram.")
+            yield {"type": "text", "text": simple_msg}
+            yield {"type": "done", "language": language, "source": "empty_query"}
+            return
+        
+        # Stream GPT response
+        if self.gpt_service:
+            try:
+                for chunk in self.gpt_service.generate_response_stream(
+                    user_query=clean_question,
+                    context_data=matched_data,
+                    data_type='travel',
+                    intent=intent_type,
+                    intent_type=intent_type,
+                    data_status=data_status
+                ):
+                    yield chunk
+            except Exception as e:
+                logger.error(f"GPT streaming failed: {e}")
+                yield {"type": "error", "message": str(e)}
+        else:
+            # Fallback to simple response
+            simple_response = self._create_simple_response(matched_data, language, is_specific_place=(intent_type == 'specific'))
+            yield {"type": "text", "text": simple_response}
+            yield {"type": "done", "language": language, "source": "simple", "structured_data": matched_data}
+
 
 _CHATBOT: Optional[TravelChatbot] = None
 
@@ -1621,6 +1724,17 @@ def chat_with_bot(message: str, user_id: str = "default") -> str:
     
     result = _CHATBOT.get_response(message, user_id)
     return result['response']
+
+
+def chat_with_bot_stream(message: str, user_id: str = "default"):
+    """Streaming version of chat_with_bot that yields SSE chunks."""
+    global _CHATBOT
+    if _CHATBOT is None:
+        _CHATBOT = TravelChatbot()
+    
+    # Yield chunks from the streaming response
+    for chunk in _CHATBOT.get_response_stream(message, user_id):
+        yield chunk
 
 
 def get_chat_response(message: str, user_id: str = "default") -> Dict[str, Any]:
