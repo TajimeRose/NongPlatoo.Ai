@@ -51,6 +51,7 @@ from sqlalchemy import (
     inspect,
     DateTime,
     func,
+    cast,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -407,10 +408,10 @@ def search_places(
                     Place.category.ilike(kw),
                     Place.address.ilike(kw),
                     Place.description.ilike(kw),
-                    cast(Place.tags, Text).ilike(kw),
+                    Place.attraction_type.ilike(kw),
                 )
             )
-            .order_by(Place.rating.desc().nullslast())
+            .order_by(Place.id)
             .limit(limit)
         )
 
