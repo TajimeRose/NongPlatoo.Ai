@@ -103,6 +103,50 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 CORS(app)
 
+# ===== iOS FIX: Request Deduplication & Singleton Pattern =====
+import uuid
+import time
+import hashlib
+
+_CHATBOT_INSTANCE = None  # Singleton to prevent multiple DB loads
+_ACTIVE_REQUESTS = {}     # Track active requests to prevent duplicates
+_INTENT_CACHE = {}        # Cache intent classifications
+_MATCH_CACHE = {}         # Cache matched data
+_CACHE_TTL = 30          # Cache TTL in seconds
+_CLEANUP_THRESHOLD = 100  # Cleanup caches when they exceed this size
+
+def cleanup_caches():
+    """Periodically clean up old cache entries"""
+    global _ACTIVE_REQUESTS, _INTENT_CACHE, _MATCH_CACHE
+    current_time = time.time()
+    
+    # Clean active requests older than 120 seconds
+    _ACTIVE_REQUESTS = {k: v for k, v in _ACTIVE_REQUESTS.items() 
+                       if current_time - v < 120}
+    
+    # Clean intent cache
+    _INTENT_CACHE = {k: v for k, v in _INTENT_CACHE.items() 
+                    if current_time - v['timestamp'] < _CACHE_TTL}
+    
+    # Clean match cache
+    _MATCH_CACHE = {k: v for k, v in _MATCH_CACHE.items() 
+                   if current_time - v['timestamp'] < _CACHE_TTL}
+
+def get_chatbot():
+    """Get or create singleton chatbot instance"""
+    global _CHATBOT_INSTANCE
+    if _CHATBOT_INSTANCE is None:
+        try:
+            from backend.chat import TravelChatbot
+            _CHATBOT_INSTANCE = TravelChatbot()
+            logger.info("✓ Chatbot singleton initialized")
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize chatbot singleton: {e}")
+            return None
+    return _CHATBOT_INSTANCE
+
+# ===== End iOS Fix =====
+
 # JWT Setup for authentication
 try:
     from flask_jwt_extended import JWTManager
@@ -352,45 +396,105 @@ def get_memory_stats():
 def post_message_stream():
     """Streaming endpoint for chat responses using Server-Sent Events."""
     try:
+        # ===== iOS FIX: Add request deduplication =====
+        cleanup_caches()  # Cleanup old cache entries
+        
         data = request.get_json(silent=True) or {}
         user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
-
+        request_id = data.get('request_id') or str(uuid.uuid4())
+        
         if not user_message:
             return jsonify({
                 'success': False,
                 'error': True,
                 'message': 'Text is required'
             }), 400
-
+        
+        # Check for duplicate/retry requests (same request_id within 5 seconds)
+        if request_id in _ACTIVE_REQUESTS:
+            elapsed = time.time() - _ACTIVE_REQUESTS[request_id]
+            if elapsed < 5:
+                logger.warning(f"[iOS] Duplicate request detected: {request_id} (elapsed: {elapsed}s)")
+                return jsonify({
+                    'success': False,
+                    'error': True,
+                    'message': 'Duplicate request - already processing'
+                }), 409
+        
+        _ACTIVE_REQUESTS[request_id] = time.time()
+        logger.info(f"[iOS] Stream request started: {request_id} (user: {user_id})")
+        
         def generate():
             """Generator function for SSE streaming."""
             try:
-                # Import here to avoid circular dependencies
-                from backend.chat import TravelChatbot
+                # Use singleton chatbot instead of creating new instance
+                chatbot = get_chatbot()
+                if not chatbot:
+                    yield "data: " + json.dumps({'type': 'error', 'message': 'Chatbot initialization failed'}, ensure_ascii=False) + "\n\n"
+                    return
+                
                 from backend.conversation_memory import get_conversation_memory
                 
                 # Get conversation memory
                 memory = get_conversation_memory()
                 
-                # Get or create chatbot instance
-                chatbot = TravelChatbot()
                 language = chatbot._detect_language(user_message)
                 
                 # Get conversation history for this user
                 conversation_history = memory.get_history(user_id)
                 
-                # Classify intent
-                intent_classification = chatbot._classify_intent(user_message)
+                # ===== iOS FIX: Cache intent classification =====
+                query_hash = hashlib.md5(user_message.encode()).hexdigest()
+                cache_key = f"{user_id}:{query_hash}"
+                
+                if cache_key in _INTENT_CACHE:
+                    elapsed = time.time() - _INTENT_CACHE[cache_key]['timestamp']
+                    if elapsed < _CACHE_TTL:
+                        intent_classification = _INTENT_CACHE[cache_key]['data']
+                        logger.debug(f"[iOS] Intent classification cache HIT for {request_id}")
+                    else:
+                        del _INTENT_CACHE[cache_key]
+                        intent_classification = chatbot._classify_intent(user_message)
+                        _INTENT_CACHE[cache_key] = {
+                            'data': intent_classification,
+                            'timestamp': time.time()
+                        }
+                else:
+                    intent_classification = chatbot._classify_intent(user_message)
+                    _INTENT_CACHE[cache_key] = {
+                        'data': intent_classification,
+                        'timestamp': time.time()
+                    }
                 
                 # Send intent classification first
                 yield "data: " + json.dumps({'type': 'intent', 'intent_type': intent_classification['intent_type'], 'keywords': intent_classification['keywords'][:3]}, ensure_ascii=False) + "\n\n"
                 
-                # Get matched data from database
-                matched_data = chatbot._match_travel_data(
-                    user_message,
-                    keywords=intent_classification.get('keywords'),
-                )
+                # ===== iOS FIX: Cache matched data =====
+                if cache_key in _MATCH_CACHE:
+                    elapsed = time.time() - _MATCH_CACHE[cache_key]['timestamp']
+                    if elapsed < _CACHE_TTL:
+                        matched_data = _MATCH_CACHE[cache_key]['data']
+                        logger.debug(f"[iOS] Match data cache HIT for {request_id}")
+                    else:
+                        del _MATCH_CACHE[cache_key]
+                        matched_data = chatbot._match_travel_data(
+                            user_message,
+                            keywords=intent_classification.get('keywords'),
+                        )
+                        _MATCH_CACHE[cache_key] = {
+                            'data': matched_data,
+                            'timestamp': time.time()
+                        }
+                else:
+                    matched_data = chatbot._match_travel_data(
+                        user_message,
+                        keywords=intent_classification.get('keywords'),
+                    )
+                    _MATCH_CACHE[cache_key] = {
+                        'data': matched_data,
+                        'timestamp': time.time()
+                    }
                 
                 # Send structured data
                 if matched_data:
@@ -398,6 +502,9 @@ def post_message_stream():
                 
                 # Store full assistant response
                 assistant_response = ""
+                
+                # ===== iOS FIX: Add heartbeat to keep connection alive =====
+                last_heartbeat = time.time()
                 
                 # Stream GPT response
                 if chatbot.gpt_service:
@@ -414,6 +521,12 @@ def post_message_stream():
                         },
                         conversation_history=conversation_history
                     ):
+                        # Send heartbeat every 5 seconds to keep iOS connection alive
+                        current_time = time.time()
+                        if current_time - last_heartbeat > 5:
+                            yield "data: " + json.dumps({'type': 'heartbeat'}, ensure_ascii=False) + "\n\n"
+                            last_heartbeat = current_time
+                        
                         if 'chunk' in chunk:
                             assistant_response += chunk['chunk']
                             yield "data: " + json.dumps({'type': 'text', 'text': chunk['chunk']}, ensure_ascii=False) + "\n\n"
@@ -443,11 +556,18 @@ def post_message_stream():
             except Exception as e:
                 logger.exception("Error in streaming generation")
                 yield "data: " + json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False) + "\n\n"
-
+            finally:
+                # Remove from active requests when done
+                if request_id in _ACTIVE_REQUESTS:
+                    del _ACTIVE_REQUESTS[request_id]
+                    logger.info(f"[iOS] Stream request completed: {request_id}")
+        
         return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         app.logger.exception("Error in /api/messages/stream")
+        if request_id in _ACTIVE_REQUESTS:
+            del _ACTIVE_REQUESTS[request_id]
         return jsonify({
             'success': False,
             'error': True,
