@@ -7,6 +7,11 @@ import Navbar from "@/components/Navbar";
 import ChatMessage from "@/components/ChatMessage";
 import { getPlaceById } from "@/data/places";
 
+// Web Speech API type declarations for TypeScript
+type SpeechRecognition = typeof window extends { SpeechRecognition: infer T } ? T : any;
+type SpeechRecognitionEvent = Event & { results: SpeechRecognitionResultList; resultIndex: number };
+type SpeechRecognitionErrorEvent = Event & { error: string };
+
 type StructuredPlace = {
   id?: string | number;
   place_name?: string;
@@ -466,7 +471,7 @@ const Chat = () => {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend(); // Use non-streaming by default for stability
+      handleSendWithStreaming(); // Use streaming for real-time response
     }
   };
 
@@ -649,7 +654,7 @@ const Chat = () => {
                   variant="outline"
                   size="sm"
                   className="rounded-full text-xs"
-                  onClick={() => handleSend(question)}
+                  onClick={() => handleSendWithStreaming(question)}
                 >
                   {question}
                 </Button>
@@ -704,7 +709,7 @@ const Chat = () => {
               </Button>
             ) : (
               <Button
-                onClick={() => handleSend()}
+                onClick={() => handleSendWithStreaming()}
                 disabled={!input.trim()}
                 className="h-12 w-12 rounded-xl"
               >

@@ -103,6 +103,16 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 CORS(app)
 
+# Initialize extensions (DB, JWT, Migration) and register API blueprints
+try:
+    from backend.extensions import init_extensions
+    from backend.api import register_api_blueprints
+    init_extensions(app)
+    register_api_blueprints(app)
+    logger.info("✓ Extensions and API blueprints initialized successfully")
+except Exception as e:
+    logger.warning(f"✗ Failed to initialize extensions: {e}")
+
 # ===== iOS FIX: Request Deduplication & Singleton Pattern =====
 import uuid
 import time
@@ -197,12 +207,13 @@ try:
     # Import database initialization helper
     from backend.db import init_db
     logger.info("✓ Database module imported successfully")
-except Exception as e:
+except Exception as db_import_error:
     # Provide a noop init_db to avoid UnboundLocalError; it will log the issue.
-    logger.error(f"✗ Failed to import db module: {e}")
+    logger.error(f"✗ Failed to import db module: {db_import_error}")
+    _db_error_msg = str(db_import_error)  # Capture error message
     def init_db() -> None:
-        logger.error(f"[CRITICAL] init_db unavailable due to import error: {e}")
-        print(f"[CRITICAL] init_db unavailable: {e}")
+        logger.error(f"[CRITICAL] init_db unavailable due to import error: {_db_error_msg}")
+        print(f"[CRITICAL] init_db unavailable: {_db_error_msg}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
