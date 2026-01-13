@@ -452,6 +452,16 @@ def post_message_stream():
         user_id = data.get('user_id', 'default')
         request_id = data.get('request_id') or str(uuid.uuid4())
         
+        # Try to get real user_id from JWT token if logged in
+        try:
+            from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
+            verify_jwt_in_request(optional=True)
+            jwt_user_id = get_jwt_identity()
+            if jwt_user_id:
+                user_id = str(jwt_user_id)
+        except Exception:
+            pass  # Not authenticated, use default
+        
         if not user_message:
             return jsonify({
                 'success': False,
