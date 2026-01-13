@@ -585,7 +585,7 @@ def post_message_stream():
                             memory.add_message(user_id, "assistant", assistant_response)
                             
                             # Calculate latency
-                            latency_ms = int((time.time() - start_time) * 1000) if 'start_time' in dir() else None
+                            latency_ms = int((time.time() - start_time) * 1000)
                             
                             # Save to ChatLog for analytics and feedback
                             chat_log_id = None
@@ -597,11 +597,7 @@ def post_message_stream():
                                 est_completion_tokens = len(assistant_response) // 3
                                 est_total_tokens = est_prompt_tokens + est_completion_tokens
                                 
-                                print(f"[DEBUG] Attempting to save ChatLog...")
-                                print(f"[DEBUG] user_message: {user_message[:50]}...")
-                                print(f"[DEBUG] ai_response length: {len(assistant_response)}")
-                                print(f"[DEBUG] latency_ms: {latency_ms}")
-                                print(f"[DEBUG] estimated tokens: {est_total_tokens}")
+                                logger.info(f"[ChatLog] Saving: msg={len(user_message)}chars, response={len(assistant_response)}chars, latency={latency_ms}ms")
                                 
                                 new_log = ChatLog(
                                     user_id=int(user_id) if user_id.isdigit() else None,
@@ -619,10 +615,9 @@ def post_message_stream():
                                     session.add(new_log)
                                     session.commit()
                                     chat_log_id = new_log.id
-                                    print(f"[DEBUG] ✓ ChatLog saved successfully! ID: {chat_log_id}")
+                                    logger.info(f"[ChatLog] ✓ Saved ID: {chat_log_id}")
                             except Exception as log_err:
-                                print(f"[ERROR] Failed to save ChatLog: {log_err}")
-                                logger.warning(f"Failed to save ChatLog: {log_err}")
+                                logger.warning(f"[ChatLog] Failed to save: {log_err}")
                             
                             yield "data: " + json.dumps({
                                 'type': 'done',
