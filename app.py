@@ -112,6 +112,13 @@ try:
     logger.info("✓ Extensions and API blueprints initialized successfully")
 except Exception as e:
     logger.warning(f"✗ Failed to initialize extensions: {e}")
+    # Try to register tracking blueprint separately even if extensions fail
+    try:
+        from backend.api.tracking import tracking_api_bp
+        app.register_blueprint(tracking_api_bp)
+        logger.info("✓ Tracking API blueprint registered separately")
+    except Exception as tracking_err:
+        logger.warning(f"✗ Failed to register tracking blueprint: {tracking_err}")
 
 # ===== iOS FIX: Request Deduplication & Singleton Pattern =====
 import uuid
@@ -468,6 +475,7 @@ def post_message_stream():
         
         def generate():
             """Generator function for SSE streaming."""
+            start_time = time.time()  # Track latency
             try:
                 # Use singleton chatbot instead of creating new instance
                 chatbot = get_chatbot()
@@ -576,7 +584,43 @@ def post_message_stream():
                             memory.add_message(user_id, "user", user_message)
                             memory.add_message(user_id, "assistant", assistant_response)
                             
-                            yield "data: " + json.dumps({'type': 'done', 'language': language}, ensure_ascii=False) + "\n\n"
+                            # Calculate latency
+                            latency_ms = int((time.time() - start_time) * 1000) if 'start_time' in dir() else None
+                            
+                            # Save to ChatLog for analytics and feedback
+                            chat_log_id = None
+                            try:
+                                from backend.db import get_session_factory, ChatLog
+                                
+                                print(f"[DEBUG] Attempting to save ChatLog...")
+                                print(f"[DEBUG] user_message: {user_message[:50]}...")
+                                print(f"[DEBUG] ai_response length: {len(assistant_response)}")
+                                print(f"[DEBUG] latency_ms: {latency_ms}")
+                                
+                                new_log = ChatLog(
+                                    user_id=int(user_id) if user_id.isdigit() else None,
+                                    session_id=None,
+                                    user_message=user_message,
+                                    ai_response=assistant_response,
+                                    model_name='gpt-4o',
+                                    latency_ms=latency_ms,
+                                )
+                                
+                                session_factory = get_session_factory()
+                                with session_factory() as session:
+                                    session.add(new_log)
+                                    session.commit()
+                                    chat_log_id = new_log.id
+                                    print(f"[DEBUG] ✓ ChatLog saved successfully! ID: {chat_log_id}")
+                            except Exception as log_err:
+                                print(f"[ERROR] Failed to save ChatLog: {log_err}")
+                                logger.warning(f"Failed to save ChatLog: {log_err}")
+                            
+                            yield "data: " + json.dumps({
+                                'type': 'done',
+                                'language': language,
+                                'chat_log_id': chat_log_id
+                            }, ensure_ascii=False) + "\n\n"
                         elif 'error' in chunk:
                             yield "data: " + json.dumps({'type': 'error', 'message': chunk['error']}, ensure_ascii=False) + "\n\n"
                 else:

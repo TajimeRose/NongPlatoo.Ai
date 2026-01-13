@@ -225,6 +225,7 @@ class UserActivityLog(Base):
     page_url = Column(Text)  # URL where action occurred
     meta_data = Column(Text)  # JSON string for additional data
     ip_address = Column(String)  # User's IP address
+    user_agent = Column(String(500))  # Browser/Device info
     created_at = Column(DateTime, default=func.now())
     
     def to_dict(self) -> Dict[str, object]:
@@ -236,11 +237,50 @@ class UserActivityLog(Base):
             "page_url": self.page_url,
             "meta_data": self.meta_data,
             "ip_address": self.ip_address,
+            "user_agent": self.user_agent,
             "created_at": self.created_at.isoformat() if self.created_at is not None else None,
         }
     
     def __repr__(self) -> str:
         return f"UserActivityLog(id={self.id!r}, action_type={self.action_type!r}, user_id={self.user_id!r})"
+
+
+class ChatLog(Base):
+    """ORM model for storing chat conversations with AI statistics."""
+    
+    __tablename__ = "chat_logs"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=True)
+    session_id = Column(Integer, nullable=True)  # DB has INTEGER type
+    
+    user_message = Column(Text, nullable=False)
+    ai_response = Column(Text, nullable=False)
+    
+    model_name = Column(String(50))
+    tokens_used = Column(Integer)
+    prompt_tokens = Column(Integer)
+    latency_ms = Column(Integer)
+    
+    created_at = Column(DateTime, default=func.now())
+    
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "user_message": self.user_message,
+            "ai_response": self.ai_response,
+            "model_name": self.model_name,
+            "tokens_used": self.tokens_used,
+            "prompt_tokens": self.prompt_tokens,
+            "latency_ms": self.latency_ms,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"ChatLog(id={self.id!r})"
+
 
 
 def get_db_url() -> str:

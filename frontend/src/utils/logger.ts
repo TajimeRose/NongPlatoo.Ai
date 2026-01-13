@@ -31,6 +31,7 @@ export const trackEvent = async (
                 action: actionName,
                 details: details,
                 page_url: window.location.pathname,
+                user_agent: navigator.userAgent,  // Browser/Device info
             }),
         });
     } catch (error) {

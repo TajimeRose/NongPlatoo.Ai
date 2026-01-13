@@ -1,9 +1,54 @@
 """Tracking API endpoints - Log user activities and events."""
 
 import json
+import requests
 from flask import Blueprint, request, jsonify
 
 tracking_api_bp = Blueprint('tracking_api', __name__, url_prefix='/api/tracking')
+
+# GeoIP cache to avoid hitting API too frequently
+_geo_cache = {}
+_GEO_CACHE_SIZE = 1000
+
+
+def get_geo_location(ip_address: str) -> dict:
+    """Get geographic location from IP address using free GeoIP service.
+    
+    Uses ip-api.com (free for non-commercial use, 45 requests/minute)
+    Returns: {"city": "Bangkok", "region": "Bangkok", "country": "TH", "country_name": "Thailand"}
+    """
+    # Skip for localhost/private IPs
+    if ip_address in ('127.0.0.1', 'localhost', '::1') or ip_address.startswith('192.168.') or ip_address.startswith('10.'):
+        return {"city": "localhost", "country": "local", "country_name": "Local Network"}
+    
+    # Check cache first
+    if ip_address in _geo_cache:
+        return _geo_cache[ip_address]
+    
+    try:
+        # Use ip-api.com (free, no API key needed)
+        response = requests.get(
+            f"http://ip-api.com/json/{ip_address}?fields=status,city,regionName,country,countryCode",
+            timeout=2  # Fast timeout to not slow down tracking
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'success':
+                geo_data = {
+                    "city": data.get('city', 'Unknown'),
+                    "region": data.get('regionName', 'Unknown'),
+                    "country": data.get('countryCode', 'Unknown'),
+                    "country_name": data.get('country', 'Unknown'),
+                }
+                # Cache the result
+                if len(_geo_cache) < _GEO_CACHE_SIZE:
+                    _geo_cache[ip_address] = geo_data
+                return geo_data
+    except Exception as e:
+        print(f"[WARN] GeoIP lookup failed for {ip_address}: {e}")
+    
+    return None
 
 
 @tracking_api_bp.route('/log', methods=['POST'])
@@ -27,9 +72,22 @@ def log_user_action():
         action_type = data.get('action') or data.get('action_type', 'unknown')
         target_element = data.get('target_element', data.get('button', ''))
         page_url = data.get('page_url', request.referrer)
+        ip_address = request.remote_addr
+        
+        # Get user_agent from payload first, fallback to request headers
+        user_agent = data.get('user_agent') or request.headers.get('User-Agent', '')
+        # Truncate to 500 chars to fit database column
+        user_agent = user_agent[:500] if user_agent else None
+        
+        # Get details from request and add geo location
+        details = data.get('details', {}) or {}
+        
+        # Add GeoIP location to details (async-friendly, with fast timeout)
+        geo_data = get_geo_location(ip_address)
+        if geo_data:
+            details['geo'] = geo_data
         
         # Convert details dict to JSON string for meta_data column
-        details = data.get('details', {})
         meta_data = json.dumps(details) if details else None
         
         # Get user_id if authenticated
@@ -49,7 +107,8 @@ def log_user_action():
             target_element=target_element,
             page_url=page_url,
             meta_data=meta_data,
-            ip_address=request.remote_addr
+            ip_address=ip_address,
+            user_agent=user_agent
         )
         
         session_factory = get_session_factory()

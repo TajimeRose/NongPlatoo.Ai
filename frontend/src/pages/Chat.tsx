@@ -49,6 +49,7 @@ interface Message {
   };
   userMessage?: string;
   isStreaming?: boolean;
+  chatLogId?: number;  // Backend Chat Log ID for feedback
 }
 
 import { getApiBase } from "@/lib/api";
@@ -346,6 +347,14 @@ const Chat = () => {
     setIsTyping(true);
     setError(null);
 
+    // Track user chat message
+    try {
+      const { trackChatMessage } = await import('@/utils/logger');
+      trackChatMessage('user');
+    } catch (e) {
+      // Tracking is optional
+    }
+
     // Create a placeholder for the assistant message
     const assistantId = `${Date.now()}-assistant`;
     const assistantMessage: Message = {
@@ -412,7 +421,7 @@ const Chat = () => {
                     )
                   );
                 } else if (data.type === "done") {
-                  // Finalize message
+                  // Finalize message with chat_log_id for feedback
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === assistantId
@@ -425,6 +434,7 @@ const Chat = () => {
                             source: "streaming",
                           },
                           isStreaming: false,
+                          chatLogId: data.chat_log_id,  // Store for feedback
                         }
                         : msg
                     )
@@ -616,6 +626,7 @@ const Chat = () => {
                 structuredData={message.structuredData}
                 meta={message.meta}
                 messageId={message.id}
+                chatLogId={message.chatLogId}
                 userMessage={message.userMessage}
               />
             ))}
