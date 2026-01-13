@@ -592,10 +592,16 @@ def post_message_stream():
                             try:
                                 from backend.db import get_session_factory, ChatLog
                                 
+                                # Estimate tokens (roughly 1 token per 4 characters for Thai/English mix)
+                                est_prompt_tokens = len(user_message) // 3
+                                est_completion_tokens = len(assistant_response) // 3
+                                est_total_tokens = est_prompt_tokens + est_completion_tokens
+                                
                                 print(f"[DEBUG] Attempting to save ChatLog...")
                                 print(f"[DEBUG] user_message: {user_message[:50]}...")
                                 print(f"[DEBUG] ai_response length: {len(assistant_response)}")
                                 print(f"[DEBUG] latency_ms: {latency_ms}")
+                                print(f"[DEBUG] estimated tokens: {est_total_tokens}")
                                 
                                 new_log = ChatLog(
                                     user_id=int(user_id) if user_id.isdigit() else None,
@@ -604,6 +610,8 @@ def post_message_stream():
                                     ai_response=assistant_response,
                                     model_name='gpt-4o',
                                     latency_ms=latency_ms,
+                                    tokens_used=est_total_tokens,
+                                    prompt_tokens=est_prompt_tokens,
                                 )
                                 
                                 session_factory = get_session_factory()

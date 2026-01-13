@@ -1,8 +1,8 @@
 {
-  "total": 266,
+  "total": 268,
   "pages": {
-    "/": 104,
-    "/chat": 90,
+    "/": 105,
+    "/chat": 91,
     "/auth": 7,
     "/places": 53,
     "/places/:id": 15
