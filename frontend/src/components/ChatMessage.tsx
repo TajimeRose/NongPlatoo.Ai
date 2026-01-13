@@ -30,6 +30,7 @@ interface ChatMessageProps {
     intent?: string;
   };
   messageId?: string;
+  chatLogId?: number;  // Backend Chat Log ID for feedback
   userMessage?: string;
 }
 
@@ -156,13 +157,16 @@ const ChatMessage = ({
   structuredData = [],
   meta,
   messageId,
+  chatLogId,
   userMessage,
 }: ChatMessageProps) => {
   const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleFeedback = async (type: 'like' | 'dislike') => {
-    if (!messageId || isSubmitting) return;
+    // Prefer chatLogId over messageId for new feedback system
+    const logId = chatLogId || messageId;
+    if (!logId || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
@@ -170,13 +174,9 @@ const ChatMessage = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message_id: messageId,
-          user_id: 'web',
-          user_message: userMessage || '',
-          ai_response: message,
-          feedback_type: type,
-          intent: meta?.intent || '',
-          source: meta?.source || '',
+          chat_log_id: logId,  // Use chat_log_id for new API
+          type: type,
+          comment: '',
         }),
       });
 
@@ -233,7 +233,7 @@ const ChatMessage = ({
         {structuredData.length > 0 && <StructuredPlaces places={structuredData} />}
 
         {/* Feedback Buttons for AI Messages */}
-        {!isUser && messageId && (
+        {!isUser && (chatLogId || messageId) && (
           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
             <Button
               variant="ghost"
