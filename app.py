@@ -546,10 +546,41 @@ def post_message_stream():
                             'timestamp': time.time()
                         }
                 else:
-                    matched_data = chatbot._match_travel_data(
-                        user_message,
-                        keywords=intent_classification.get('keywords'),
-                    )
+                    # ============ LOCATION-AWARE SEARCH (NEW) ============
+                    # Extract location reference and try proximity search first
+                    from backend.db import search_places_near_location
+                    
+                    location_ref = chatbot._extract_location_reference(user_message)
+                    location_aware_results = []
+                    
+                    if location_ref.get("has_reference") and location_ref.get("reference"):
+                        coords = chatbot._resolve_location_coordinates(location_ref["reference"])
+                        if coords:
+                            search_target = location_ref.get("target", user_message)
+                            radius_km = location_ref.get("radius_km", 2)
+                            
+                            logger.info(f"[Stream] Location-aware search: '{search_target}' near {location_ref['reference']} ({coords['lat']}, {coords['lng']}) radius={radius_km}km")
+                            
+                            location_aware_results = search_places_near_location(
+                                keyword=search_target,
+                                center_lat=coords["lat"],
+                                center_lng=coords["lng"],
+                                radius_km=radius_km,
+                                limit=5
+                            )
+                            
+                            if location_aware_results:
+                                logger.info(f"[Stream] Found {len(location_aware_results)} places near {location_ref['reference']}")
+                    
+                    # Use location-aware results if found, otherwise fall back to standard search
+                    if location_aware_results:
+                        matched_data = location_aware_results
+                    else:
+                        matched_data = chatbot._match_travel_data(
+                            user_message,
+                            keywords=intent_classification.get('keywords'),
+                        )
+                    
                     _MATCH_CACHE[cache_key] = {
                         'data': matched_data,
                         'timestamp': time.time()

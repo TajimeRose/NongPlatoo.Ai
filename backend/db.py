@@ -80,7 +80,7 @@ class Place(Base):
 
     # Actual columns in the database
     id = Column(Integer, primary_key=True)
-    place_id = Column(String, nullable=False)
+    place_id = Column(String, nullable=True)  # Made nullable - some DBs may not have this column
     name = Column(String, nullable=False)
     category = Column(String)
     description = Column(Text)
@@ -282,6 +282,137 @@ class ChatLog(Base):
         return f"ChatLog(id={self.id!r})"
 
 
+class LocationCache(Base):
+    """ORM model for caching geocoded location coordinates from Nominatim."""
+    
+    __tablename__ = "location_cache"
+    
+    id = Column(Integer, primary_key=True)
+    location_name = Column(String(500), nullable=False, unique=True)  # "วิทยาลัยเทคนิคสมุทรสงคราม"
+    latitude = Column(Numeric(9, 6), nullable=False)
+    longitude = Column(Numeric(9, 6), nullable=False)
+    source = Column(String(50), default="nominatim")  # "nominatim", "manual", "google"
+    created_at = Column(DateTime, default=func.now())
+    
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "location_name": self.location_name,
+            "latitude": float(self.latitude) if self.latitude else None,
+            "longitude": float(self.longitude) if self.longitude else None,
+            "source": self.source,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"LocationCache(id={self.id!r}, name={self.location_name!r})"
+
+
+def get_cached_location(location_name: str) -> Dict[str, float] | None:
+    """Get cached coordinates for a location name.
+    
+    Returns:
+        {"lat": 13.xxx, "lng": 100.xxx, "source": "cache"} or None
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        
+        with session_factory() as session:
+            cached = session.query(LocationCache).filter(
+                LocationCache.location_name.ilike(f"%{location_name}%")
+            ).first()
+            
+            if cached:
+                print(f"[CACHE HIT] Location '{location_name}' found in cache")
+                return {
+                    "lat": float(cached.latitude),
+                    "lng": float(cached.longitude),
+                    "source": "cache"
+                }
+        return None
+    except Exception as e:
+        print(f"[WARN] Location cache lookup failed: {e}")
+        return None
+
+
+def save_location_to_cache(location_name: str, lat: float, lng: float, source: str = "nominatim") -> bool:
+    """Save geocoded location to cache for future use.
+    
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        
+        with session_factory() as session:
+            # Check if already exists
+            existing = session.query(LocationCache).filter(
+                LocationCache.location_name == location_name
+            ).first()
+            
+            if existing:
+                return True  # Already cached
+            
+            new_cache = LocationCache(
+                location_name=location_name,
+                latitude=lat,
+                longitude=lng,
+                source=source
+            )
+            session.add(new_cache)
+            session.commit()
+            print(f"[CACHE] Saved location '{location_name}' to cache ({lat}, {lng})")
+            return True
+            
+    except Exception as e:
+        print(f"[WARN] Failed to save location to cache: {e}")
+        return False
+
+
+def save_google_place_to_db(place_data: Dict[str, Any]) -> bool:
+    """Save a Google Places result to our places table for future use.
+    
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        
+        with session_factory() as session:
+            # Check if already exists by place_id
+            place_id = place_data.get('place_id', '')
+            if not place_id:
+                return False
+                
+            existing = session.query(Place).filter(
+                Place.place_id == place_id
+            ).first()
+            
+            if existing:
+                return True  # Already in DB
+            
+            # Create new Place entry
+            new_place = Place(
+                place_id=place_id,
+                name=place_data.get('name', 'Unknown'),
+                category=place_data.get('category', 'From Google Maps'),
+                description=place_data.get('description', ''),
+                address=place_data.get('address', ''),
+                latitude=place_data.get('latitude'),
+                longitude=place_data.get('longitude'),
+                attraction_type='google_cached'
+            )
+            session.add(new_place)
+            session.commit()
+            print(f"[DB] Saved Google place '{place_data.get('name')}' to database")
+            return True
+            
+    except Exception as e:
+        print(f"[WARN] Failed to save Google place to DB: {e}")
+        return False
 
 def get_db_url() -> str:
     """Resolve the database URL.
@@ -524,6 +655,89 @@ def get_attractions_by_type(attraction_type: str, limit: int = MAX_ATTRACTIONS_L
 
     except SQLAlchemyError as e:
         print(f"[WARN] get_attractions_by_type DB error: {e}")
+        return []
+
+
+def search_places_near_location(
+    keyword: str,
+    center_lat: float,
+    center_lng: float,
+    radius_km: float = 2.0,
+    limit: int = DEFAULT_SEARCH_LIMIT
+) -> List[Dict[str, object]]:
+    """
+    Search for places NEAR a specific location within a given radius.
+    
+    Uses Haversine formula at SQL level to calculate distances.
+    Filters by keyword AND proximity.
+    
+    Args:
+        keyword: Search term (e.g., "ร้านอาหาร", "คาเฟ่")
+        center_lat: Latitude of the reference point
+        center_lng: Longitude of the reference point
+        radius_km: Search radius in kilometers (default: 2km)
+        limit: Maximum number of results
+    
+    Returns:
+        List of places sorted by distance from the center point
+    """
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        kw = f"%{keyword}%"
+        
+        # Haversine formula in SQL to calculate distance in kilometers
+        # This calculates the great-circle distance between two points
+        haversine_distance = (
+            6371 * func.acos(
+                func.cos(func.radians(center_lat)) *
+                func.cos(func.radians(cast(Place.latitude, Numeric))) *
+                func.cos(func.radians(cast(Place.longitude, Numeric)) - func.radians(center_lng)) +
+                func.sin(func.radians(center_lat)) *
+                func.sin(func.radians(cast(Place.latitude, Numeric)))
+            )
+        )
+        
+        # Query places that match keyword AND are within radius
+        places_stmt = (
+            select(Place, haversine_distance.label('distance'))
+            .where(
+                # Must have coordinates
+                Place.latitude.isnot(None),
+                Place.longitude.isnot(None),
+                # Keyword filter
+                or_(
+                    Place.name.ilike(kw),
+                    Place.category.ilike(kw),
+                    Place.address.ilike(kw),
+                    Place.description.ilike(kw),
+                    Place.attraction_type.ilike(kw),
+                ),
+                # Proximity filter (within radius)
+                haversine_distance <= radius_km
+            )
+            .order_by(haversine_distance.asc())  # Sort by nearest first
+            .limit(limit)
+        )
+
+        with session_factory() as session:
+            results: List[Dict[str, object]] = []
+            for row in session.execute(places_stmt):
+                place = row[0]  # Place object
+                distance = row[1]  # Distance in km
+                place_dict = place.to_dict()
+                place_dict['_distance_km'] = round(float(distance), 2) if distance else None
+                results.append(place_dict)
+        
+        if results:
+            print(f"[INFO] Found {len(results)} places near ({center_lat}, {center_lng}) within {radius_km}km")
+        else:
+            print(f"[INFO] No places found near ({center_lat}, {center_lng}) for '{keyword}'")
+        
+        return results
+
+    except SQLAlchemyError as e:
+        print(f"[WARN] search_places_near_location DB error: {e}")
         return []
 
 

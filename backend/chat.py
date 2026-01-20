@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .configs import PromptRepo
-from .db import get_db, Place, search_places, search_main_attractions, get_attractions_by_type
+from .db import get_db, Place, search_places, search_main_attractions, get_attractions_by_type, search_places_near_location
 try:
     from .services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
@@ -357,15 +357,167 @@ class TravelChatbot:
 
         return self._deduplicate_entries(entries)
 
+    def _extract_location_reference(self, query: str) -> Dict[str, Any]:
+        """
+        Extract target (what to find) and reference location (where to find it) from query.
+        Uses GPT to parse natural language queries like "ร้านอาหารใกล้วิทลัยเทคนิค".
+        
+        Returns:
+            {
+                "target": "ร้านอาหาร",
+                "reference": "วิทยาลัยเทคนิคสมุทรสงคราม",
+                "radius_km": 2,
+                "has_reference": True
+            }
+        """
+        # Quick check for location reference indicators
+        # Include common Thai misspellings (ไกล้ instead of ใกล้)
+        location_indicators = [
+            "ใกล้", "ไกล้", "แถว", "รอบ", "ข้าง", "หน้า", "หลัง", "ติด", 
+            "ใกล", "ไกล", "near", "around", "by", "next to"
+        ]
+        
+        has_indicator = any(ind in query.lower() for ind in location_indicators)
+        print(f"[DEBUG] Location check: query='{query}', has_indicator={has_indicator}")
+        
+        if not has_indicator:
+            print(f"[DEBUG] No location indicator found, skipping location-aware search")
+            return {"target": query, "reference": None, "radius_km": 2, "has_reference": False}
+        
+        # Use GPT to extract entities
+        if not self.gpt_service or not self.gpt_service.client:
+            return {"target": query, "reference": None, "radius_km": 2, "has_reference": False}
+        
+        try:
+            extraction_prompt = f"""วิเคราะห์คำถามนี้และแยกเป็น JSON:
+คำถาม: "{query}"
+
+ตอบเป็น JSON เท่านั้น:
+{{"target": "สิ่งที่ต้องการหา เช่น ร้านอาหาร คาเฟ่", "reference": "สถานที่อ้างอิง เช่น วัดบางกุ้ง หรือ null ถ้าไม่มี", "radius_km": 2}}"""
+
+            response = self.gpt_service.client.chat.completions.create(
+                model=self.gpt_service.model_name,
+                messages=[
+                    {"role": "system", "content": "Extract location entities from Thai travel queries. Respond with JSON only."},
+                    {"role": "user", "content": extraction_prompt}
+                ],
+                temperature=0.0,
+                max_tokens=150,
+                timeout=10
+            )
+            
+            content = response.choices[0].message.content or ""
+            # Parse JSON from response
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                parsed = json.loads(content[start:end])
+                result = {
+                    "target": parsed.get("target", query),
+                    "reference": parsed.get("reference"),
+                    "radius_km": parsed.get("radius_km", 2),
+                    "has_reference": bool(parsed.get("reference"))
+                }
+                if result["has_reference"]:
+                    print(f"[INFO] Location reference extracted: {result['reference']}")
+                return result
+                
+        except Exception as e:
+            print(f"[WARN] Location extraction failed: {e}")
+        
+        return {"target": query, "reference": None, "radius_km": 2, "has_reference": False}
+
+    def _resolve_location_coordinates(self, location_name: str) -> Optional[Dict[str, float]]:
+        """
+        Resolve a location name to coordinates (lat/lng).
+        Priority: 1) Check places DB, 2) Use Nominatim (free OSM geocoding)
+        
+        Returns:
+            {"lat": 13.xxxx, "lng": 100.xxxx, "source": "database"|"nominatim"} or None
+        """
+        if not location_name:
+            return None
+            
+        # Priority 1: Check our places database for matching places with coordinates
+        try:
+            db_gen = get_db()
+            db = next(db_gen)
+            
+            # Search for the location in our database (only use 'name' column which exists)
+            place = db.query(Place).filter(
+                Place.name.ilike(f"%{location_name}%")
+            ).first()
+            
+            if place and place.latitude and place.longitude:
+                print(f"[INFO] Resolved '{location_name}' from places DB: {place.latitude}, {place.longitude}")
+                return {
+                    "lat": float(place.latitude),
+                    "lng": float(place.longitude),
+                    "source": "database"
+                }
+        except Exception as e:
+            print(f"[WARN] Places DB coordinate lookup failed: {e}")
+        
+        # Priority 2: Use Nominatim (OpenStreetMap) - FREE geocoding
+        try:
+            import requests
+            
+            # Add Samut Songkhram context for better results
+            search_query = f"{location_name}, สมุทรสงคราม, Thailand"
+            
+            nominatim_url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                "q": search_query,
+                "format": "json",
+                "limit": 1,
+                "countrycodes": "th"
+            }
+            headers = {
+                "User-Agent": "NongPlatoo-AI-TravelAssistant/1.0"
+            }
+            
+            response = requests.get(nominatim_url, params=params, headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                results = response.json()
+                if results:
+                    lat = float(results[0]["lat"])
+                    lng = float(results[0]["lon"])
+                    print(f"[INFO] Resolved '{location_name}' from Nominatim: {lat}, {lng}")
+                    return {
+                        "lat": lat,
+                        "lng": lng,
+                        "source": "nominatim"
+                    }
+                else:
+                    print(f"[WARN] Nominatim found no results for: {location_name}")
+                    
+        except Exception as e:
+            print(f"[WARN] Nominatim geocoding failed: {e}")
+        
+        return None
+
     def _google_search_fallback(
         self,
         query: str,
         keywords: Optional[List[str]] = None,
-        limit: int = 3
+        limit: int = 3,
+        center_lat: Optional[float] = None,
+        center_lng: Optional[float] = None,
+        radius_meters: int = 50000
     ) -> List[Dict[str, Any]]:
         """
         Fallback to Google Maps Places search when database has no results.
-        Uses Google Maps Places API to find tourism locations in Samut Songkhram.
+        Uses Google Maps Places API to find tourism locations.
+        
+        Args:
+            query: Search query
+            keywords: Additional keywords
+            limit: Max results to return
+            center_lat: Center latitude for search (default: Samut Songkhram center)
+            center_lng: Center longitude for search (default: Samut Songkhram center)
+            radius_meters: Search radius in meters (default: 50km for province-wide)
+        
         Returns results normalized to Place schema format.
         """
         try:
@@ -382,23 +534,32 @@ class TravelChatbot:
 
         results: List[Dict[str, Any]] = []
         
+        # Use provided coordinates or default to Samut Songkhram center
+        search_lat = center_lat if center_lat is not None else 13.4549
+        search_lng = center_lng if center_lng is not None else 100.7588
+        
+        # Log search parameters
+        if center_lat is not None:
+            print(f"[INFO] Location-aware search at ({search_lat}, {search_lng}) radius={radius_meters}m")
+        
         try:
             # Initialize Google Maps client with timeout
             gmaps = googlemaps.Client(key=api_key, timeout=8)
             
-            # Search query - combine main query with Samut Songkhram
-            search_query = f"{query} Samut Songkhram Thailand"
+            # Search query - combine main query with location context
+            if center_lat is None:
+                search_query = f"{query} Samut Songkhram Thailand"
+            else:
+                search_query = query  # Don't add province when searching near specific location
             
             print(f"[INFO] Google Maps fallback search: {search_query}")
             
             # Perform Places search with timeout
             def do_search():
                 try:
-                    # Use Places API nearby search centered on Samut Songkhram
-                    # Coordinates: Samut Songkhram center (13.4549°N, 100.7588°E)
                     response = gmaps.places_nearby(  # type: ignore
-                        location=(13.4549, 100.7588),
-                        radius=50000,  # 50km radius covers entire province
+                        location=(search_lat, search_lng),
+                        radius=radius_meters,
                         keyword=search_query,
                         language='th'
                     )
@@ -413,7 +574,7 @@ class TravelChatbot:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(do_search)
                 try:
-                    search_results = future.result(timeout=15)  # 15 second overall timeout
+                    search_results = future.result(timeout=15)
                 except concurrent.futures.TimeoutError:
                     print("[WARN] Google Maps search timed out after 15 seconds")
                     return []
@@ -441,7 +602,7 @@ class TravelChatbot:
                 photos = result.get('photos', [])
                 image_urls = []
                 if photos and api_key:
-                    for photo in photos[:1]:  # Use first photo only
+                    for photo in photos[:1]:
                         photo_ref = photo.get('photo_reference', '')
                         if photo_ref:
                             img_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference={photo_ref}&key={api_key}"
@@ -481,7 +642,6 @@ class TravelChatbot:
             
             if results:
                 print(f"[INFO] Google Maps fallback found {len(results)} results")
-
             else:
                 print("[INFO] Google fallback found no results")
                 
@@ -1439,11 +1599,43 @@ class TravelChatbot:
                 keyword_pool = self._merge_keywords(keyword_pool, fallback_keywords)
                 auto_keywords_used = True
 
-        matched_data = self._match_travel_data(
-            user_message,
-            keywords=keyword_pool,
-            boost_keywords=matcher_signals.get("keywords"),
-        )
+        # ============ LOCATION-AWARE SEARCH (NEW) ============
+        # Extract location reference EARLY and try proximity search in database first
+        location_ref = self._extract_location_reference(user_message)
+        location_aware_coords = None
+        location_aware_results: List[Dict[str, Any]] = []
+        
+        if location_ref.get("has_reference") and location_ref.get("reference"):
+            # Resolve reference location to coordinates
+            coords = self._resolve_location_coordinates(location_ref["reference"])
+            if coords:
+                location_aware_coords = coords
+                search_target = location_ref.get("target", user_message)
+                radius_km = location_ref.get("radius_km", 2)
+                
+                logger.info(f"Location-aware DB search: '{search_target}' near {location_ref['reference']} ({coords['lat']}, {coords['lng']}) radius={radius_km}km")
+                
+                # Search database for places near the reference location
+                location_aware_results = search_places_near_location(
+                    keyword=search_target,
+                    center_lat=coords["lat"],
+                    center_lng=coords["lng"],
+                    radius_km=radius_km,
+                    limit=5
+                )
+                
+                if location_aware_results:
+                    logger.info(f"Location-aware DB found {len(location_aware_results)} places near {location_ref['reference']}")
+        
+        # Use location-aware results if found, otherwise fall back to standard search
+        if location_aware_results:
+            matched_data = location_aware_results
+        else:
+            matched_data = self._match_travel_data(
+                user_message,
+                keywords=keyword_pool,
+                boost_keywords=matcher_signals.get("keywords"),
+            )
         if not matched_data and not auto_keywords_used:
             fallback_keywords = self._auto_detect_keywords(user_message)
             if fallback_keywords:
@@ -1486,15 +1678,38 @@ class TravelChatbot:
             includes_local_term = True
         
         # Google Search Fallback: If no data found in database, try web search
+        # NEW: Location-aware search - extract reference location and search nearby
         if not matched_data and includes_local_term:
             logger.info(f"No database results for query: {user_message}")
-            logger.info("Attempting Google search fallback...")
+            logger.info("Attempting location-aware Google search fallback...")
             
             try:
+                # Step 1: Extract location reference from query
+                location_ref = self._extract_location_reference(user_message)
+                
+                search_lat = None
+                search_lng = None
+                search_radius = 50000  # Default: province-wide (50km)
+                search_query = user_message
+                
+                # Step 2: If reference location found, resolve to coordinates
+                if location_ref.get("has_reference") and location_ref.get("reference"):
+                    coords = self._resolve_location_coordinates(location_ref["reference"])
+                    if coords:
+                        search_lat = coords["lat"]
+                        search_lng = coords["lng"]
+                        search_radius = int(location_ref.get("radius_km", 2) * 1000)  # Convert km to meters
+                        search_query = location_ref.get("target", user_message)
+                        logger.info(f"Location-aware search: '{search_query}' near ({search_lat}, {search_lng}) radius={search_radius}m")
+                
+                # Step 3: Perform Google search with dynamic coordinates
                 google_results = self._google_search_fallback(
-                    query=user_message,
+                    query=search_query,
                     keywords=keyword_pool,
-                    limit=3
+                    limit=3,
+                    center_lat=search_lat,
+                    center_lng=search_lng,
+                    radius_meters=search_radius
                 )
                 
                 if google_results:
