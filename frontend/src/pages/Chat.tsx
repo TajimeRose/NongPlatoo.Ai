@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, Sparkles, AlertCircle, Mic, Square, Volume2, VolumeX } from "lucide-react";
+import { Send, Sparkles, AlertCircle, Mic, Square, Volume2, VolumeX, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
 import ChatMessage from "@/components/ChatMessage";
+import VoiceAIInterface from "@/components/VoiceAIInterface";
 import { getPlaceById } from "@/data/places";
 
 // Web Speech API type declarations for TypeScript
@@ -89,6 +90,7 @@ const Chat = () => {
   const [hasSpeechSupport, setHasSpeechSupport] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [isVoiceAIOpen, setIsVoiceAIOpen] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const voiceTextRef = useRef("");
   const pendingRequestRef = useRef<AbortController | null>(null);
@@ -689,6 +691,17 @@ const Chat = () => {
             >
               <Mic className="w-5 h-5" />
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setIsVoiceAIOpen(true)}
+              disabled={isTyping}
+              className="border-cyan-500/50 text-cyan-600 hover:bg-cyan-500/10 hover:text-cyan-500"
+              title="Voice AI Assistant"
+            >
+              <Radio className="w-5 h-5" />
+            </Button>
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -736,6 +749,12 @@ const Chat = () => {
           )}
         </div>
       </div>
+
+      {/* Voice AI Full-screen Interface */}
+      <VoiceAIInterface
+        isOpen={isVoiceAIOpen}
+        onClose={() => setIsVoiceAIOpen(false)}
+      />
     </div>
   );
 };
