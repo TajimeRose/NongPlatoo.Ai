@@ -15,7 +15,7 @@ type StructuredPlace = {
   location?: string | { district?: string; province?: string };
   category?: string;
   type?: string | string[];
-  images?: string[] | string | any;
+  images?: string[] | string | unknown;
   opening_hours?: string;
   contact?: string;
 };
@@ -60,7 +60,7 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
   const locationText = formatLocation(place.location) || place.address;
 
   // Robust image extraction handling string or array
-  const extractImages = (imgs: any): string[] => {
+  const extractImages = (imgs: unknown): string[] => {
     if (!imgs) return [];
     if (Array.isArray(imgs)) return imgs.filter((u) => u).map((u) => String(u).trim());
     if (typeof imgs === 'string') {
@@ -69,7 +69,9 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
         try {
           const parsed = JSON.parse(trimmed);
           if (Array.isArray(parsed)) return parsed.filter((u) => u).map((u) => String(u).trim());
-        } catch { }
+        } catch (e) {
+          console.warn('Failed to parse images JSON:', e);
+        }
       }
       // Single URL string
       return trimmed ? [trimmed] : [];
