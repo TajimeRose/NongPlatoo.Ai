@@ -1,33 +1,72 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFaceDetection } from "@/hooks/useFaceDetection";
 
 interface VoiceAIInterfaceProps {
     isOpen: boolean;
     onClose: () => void;
+    onSpeak?: (text: string) => void;
 }
 
-const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
+const VoiceAIInterface = ({ isOpen, onClose, onSpeak }: VoiceAIInterfaceProps) => {
     const [isListening, setIsListening] = useState(false);
     const [pulseIntensity, setPulseIntensity] = useState(0);
+    const [faceDetected, setFaceDetected] = useState(false);
+    const [showGreeting, setShowGreeting] = useState(false);
+    const greetingTimeoutRef = useRef<number | null>(null);
+    const faceDetectionInitialRef = useRef(false);
 
-    // Simulate audio visualization
+    const { videoRef, result: faceResult, isLoading } = useFaceDetection(isOpen);
+
+    // Handle face detection
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            setFaceDetected(false);
+            setShowGreeting(false);
+            if (greetingTimeoutRef.current) {
+                clearTimeout(greetingTimeoutRef.current);
+            }
+            return;
+        }
 
-        // Auto-start "listening" when opened
-        setIsListening(true);
+        if (faceResult.hasFace && !faceDetected) {
+            setFaceDetected(true);
+            // Show greeting when face first detected
+            if (!faceDetectionInitialRef.current) {
+                setShowGreeting(true);
+                setIsListening(true);
+                faceDetectionInitialRef.current = true;
+                
+                // Speak the greeting with natural Thai voice
+                const greetingText = "สวัสดีค่ะ ฉันคือน้องปลาทู ผู้ช่วยท่องเที่ยวสมุทรสงคราม มีอะไรให้ช่วยไหมคะ";
+                if (onSpeak) {
+                    // Slight delay to feel more natural
+                    setTimeout(() => {
+                        onSpeak(greetingText);
+                    }, 500);
+                }
+                
+                // Auto-hide greeting message after 5 seconds
+                greetingTimeoutRef.current = window.setTimeout(() => {
+                    setShowGreeting(false);
+                }, 5000);
+            }
+        } else if (!faceResult.hasFace && faceDetected) {
+            setFaceDetected(false);
+        }
+    }, [faceResult.hasFace, isOpen, faceDetected, onSpeak]);
 
-        // Simulate audio wave intensity
+    // Audio visualization
+    useEffect(() => {
+        if (!isOpen || !isListening) return;
+
         const interval = setInterval(() => {
             setPulseIntensity(Math.random() * 100);
         }, 100);
 
-        return () => {
-            clearInterval(interval);
-            setIsListening(false);
-        };
-    }, [isOpen]);
+        return () => clearInterval(interval);
+    }, [isOpen, isListening]);
 
     if (!isOpen) return null;
 
@@ -35,7 +74,16 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
     const glowIntensity = 20 + (pulseIntensity * 0.3);
 
     return (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex flex-col">
+        <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex flex-col overflow-hidden">
+            {/* Keep video element for face detection but hide the preview */}
+            <video
+                ref={videoRef}
+                className="hidden"
+                autoPlay
+                playsInline
+                muted
+            />
+
             {/* Close Button */}
             <div className="absolute top-6 right-6 z-10">
                 <Button
@@ -203,6 +251,21 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             {/* Status Text */}
             <div className="pb-16 text-center">
                 <div className="mb-4">
+                    {/* AI Greeting Message */}
+                    {showGreeting && (
+                        <div className="mb-4 animate-in fade-in duration-500">
+                            <p className="text-cyan-300 text-lg font-medium mb-2">
+                                สวัสดีค่ะ! 👋
+                            </p>
+                            <p className="text-white/70 text-sm">
+                                ฉันคือน้องปลาทู ผู้ช่วยท่องเที่ยวสมุทรสงคราม
+                            </p>
+                            <p className="text-white/60 text-xs mt-1">
+                                มีอะไรให้ช่วยไหมคะ
+                            </p>
+                        </div>
+                    )}
+
                     <p className={`text-lg font-medium ${isListening ? 'text-cyan-400' : 'text-white/60'}`}>
                         {isListening ? 'กำลังฟังอยู่...' : 'กดเพื่อเริ่มพูด'}
                     </p>
@@ -228,11 +291,6 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                         {isListening ? 'หยุดฟัง' : 'เริ่มพูด'}
                     </Button>
                 </div>
-
-                {/* Demo Notice */}
-                <p className="text-white/30 text-xs mt-6">
-                    🚧 Demo Mode - Interface Only
-                </p>
             </div>
         </div>
     );

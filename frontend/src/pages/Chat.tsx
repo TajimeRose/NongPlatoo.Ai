@@ -9,7 +9,23 @@ import VoiceAIInterface from "@/components/VoiceAIInterface";
 import { getPlaceById } from "@/data/places";
 
 // Web Speech API type declarations for TypeScript
-type SpeechRecognition = typeof window extends { SpeechRecognition: infer T } ? T : any;
+interface SpeechRecognitionStatic {
+  new(): SpeechRecognitionInstance;
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onstart: ((this: SpeechRecognitionInstance, ev: Event) => void) | null;
+  onresult: ((this: SpeechRecognitionInstance, ev: SpeechRecognitionEvent) => void) | null;
+  onerror: ((this: SpeechRecognitionInstance, ev: SpeechRecognitionErrorEvent) => void) | null;
+  onend: ((this: SpeechRecognitionInstance, ev: Event) => void) | null;
+}
+type SpeechRecognition = SpeechRecognitionInstance;
 type SpeechRecognitionEvent = Event & { results: SpeechRecognitionResultList; resultIndex: number };
 type SpeechRecognitionErrorEvent = Event & { error: string };
 
@@ -107,16 +123,21 @@ const Chat = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const windowWithSpeech = window as Window & {
+      SpeechRecognition?: SpeechRecognitionStatic;
+      webkitSpeechRecognition?: SpeechRecognitionStatic;
+    };
+    const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     setHasSpeechSupport(Boolean(SpeechRecognition));
 
     return () => {
       recognitionRef.current?.abort();
       eventSourceRef.current?.close();
-      currentAudio?.pause();
+      if (currentAudio) {
+        currentAudio.pause();
+      }
     };
-  }, []);
+  }, [currentAudio]);
 
   const createTimestamp = () =>
     new Date().toLocaleTimeString("th-TH", {
@@ -349,14 +370,6 @@ const Chat = () => {
     setIsTyping(true);
     setError(null);
 
-    // Track user chat message
-    try {
-      const { trackChatMessage } = await import('@/utils/logger');
-      trackChatMessage('user');
-    } catch (e) {
-      // Tracking is optional
-    }
-
     // Create a placeholder for the assistant message
     const assistantId = `${Date.now()}-assistant`;
     const assistantMessage: Message = {
@@ -501,8 +514,11 @@ const Chat = () => {
 
   const startListening = async () => {
     if (typeof window === "undefined") return;
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const windowWithSpeech = window as Window & {
+      SpeechRecognition?: SpeechRecognitionStatic;
+      webkitSpeechRecognition?: SpeechRecognitionStatic;
+    };
+    const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setError("เบราว์เซอร์นี้ไม่รองรับการรับเสียง กรุณาใช้ Chrome หรือ Edge");
       return;
@@ -754,6 +770,7 @@ const Chat = () => {
       <VoiceAIInterface
         isOpen={isVoiceAIOpen}
         onClose={() => setIsVoiceAIOpen(false)}
+        onSpeak={playTextToSpeech}
       />
     </div>
   );
