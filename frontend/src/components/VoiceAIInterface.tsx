@@ -307,7 +307,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                         <p className={`text-2xl font-light transition-all duration-300 ${status === 'listening' ? 'text-white opacity-100 scale-105' : 'text-white/50 scale-100'}`}>
                             {status === 'listening' ? transcript :
                                 status === 'speaking' ? (currentSentence || "...") :
-                                    (assistantMessage || transcript)}
+                                    ""}
                         </p>
                     </div>
                 )}

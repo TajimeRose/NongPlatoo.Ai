@@ -12,9 +12,68 @@ export const useSpeechSynthesis = () => {
 
     // Queue system for sequential playback
     const queueRef = useRef<string[]>([]);
+    const prefetchQueueRef = useRef<Map<string, Blob>>(new Map()); // Store pre-fetched audio
     const processingRef = useRef(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Helper to fetch audio (internal)
+    const fetchAudio = async (text: string, signal?: AbortSignal): Promise<Blob> => {
+        // Check cache first
+        if (prefetchQueueRef.current.has(text)) {
+            const blob = prefetchQueueRef.current.get(text)!;
+            prefetchQueueRef.current.delete(text);
+            return blob;
+        }
+
+        let attempt = 0;
+        const maxAttempts = 3;
+
+        while (attempt < maxAttempts) {
+            try {
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: 'shimmer',
+                        speed: 1.25
+                    }),
+                    signal: signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`TTS API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!data.success || !data.audio) {
+                    throw new Error(data.error || 'No audio returned');
+                }
+
+                return base64ToBlob(data.audio, 'audio/mpeg');
+            } catch (e) {
+                attempt++;
+                if (attempt >= maxAttempts) throw e;
+                await new Promise(r => setTimeout(r, 500 * attempt));
+            }
+        }
+        throw new Error('Failed to fetch TTS');
+    };
+
+    // Trigger pre-fetch for the NEXT item in queue
+    const triggerPrefetch = useCallback(() => {
+        if (queueRef.current.length > 0) {
+            const nextText = queueRef.current[0];
+            if (!prefetchQueueRef.current.has(nextText)) {
+                // Determine a unique way to track this request if needed, 
+                // but for now just fire and forget into the map
+                fetchAudio(nextText).then(blob => {
+                    prefetchQueueRef.current.set(nextText, blob);
+                }).catch(e => console.warn('Prefetch failed', e));
+            }
+        }
+    }, []);
 
     // Process the queue - fetch audio from OpenAI TTS and play
     const processQueue = useCallback(async () => {
@@ -31,58 +90,14 @@ export const useSpeechSynthesis = () => {
         const text = queueRef.current.shift()!;
         setCurrentSentence(text);
 
+        // IMMEDIATE: Trigger pre-fetch for the *next* item while current one processes
+        triggerPrefetch();
+
         try {
-            // Create abort controller for this request
             abortControllerRef.current = new AbortController();
 
-            // Call OpenAI TTS API endpoint with retry logic
-            let response;
-            let attempt = 0;
-            const maxAttempts = 3;
-
-            while (attempt < maxAttempts) {
-                try {
-                    response = await fetch('/api/tts', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            text: text,
-                            voice: 'shimmer', // Female voice, clear and distinct
-                            speed: 1.25 // Optimized speed
-                        }),
-                        signal: abortControllerRef.current.signal
-                    });
-
-                    if (response.ok) break; // Success!
-
-                    // If server error, maybe retry?
-                    if (response.status >= 500) {
-                        throw new Error(`Server error: ${response.status}`);
-                    } else {
-                        // Client error (4xx), don't retry
-                        throw new Error(`TTS API error: ${response.status}`);
-                    }
-                } catch (e) {
-                    attempt++;
-                    console.warn(`TTS attempt ${attempt} failed:`, e);
-                    if (attempt >= maxAttempts) throw e;
-                    // Wait before retry (exponential backoff: 500ms, 1000ms, etc)
-                    await new Promise(r => setTimeout(r, 500 * attempt));
-                }
-            }
-
-            if (!response || !response.ok) {
-                throw new Error('Failed to fetch TTS after retries');
-            }
-
-            const data = await response.json();
-
-            if (!data.success || !data.audio) {
-                throw new Error(data.error || 'No audio returned');
-            }
-
-            // Create audio element and play
-            const audioBlob = base64ToBlob(data.audio, 'audio/mpeg');
+            // Get audio (from cache or fetch)
+            const audioBlob = await fetchAudio(text, abortControllerRef.current.signal);
             const audioUrl = URL.createObjectURL(audioBlob);
 
             audioRef.current = new Audio(audioUrl);
@@ -106,15 +121,11 @@ export const useSpeechSynthesis = () => {
                 audioRef.current.play().catch(reject);
             });
 
-            console.log(`🎤 Played TTS audio (${text.length} chars)`);
-
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
                 console.log('🛑 TTS playback cancelled');
             } else {
                 console.error('TTS error:', error);
-                // Fallback to Web Speech API - DISABLED as per user request (unreliable on target devices)
-                // fallbackToWebSpeech(text);
                 console.warn('TTS failed and fallback is disabled');
             }
         } finally {
@@ -125,7 +136,7 @@ export const useSpeechSynthesis = () => {
             // Process next in queue
             processQueue();
         }
-    }, []);
+    }, [triggerPrefetch]);
 
     // ... (keep fallbackToWebSpeech commented out or as is)
 
