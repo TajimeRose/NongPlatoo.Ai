@@ -28,6 +28,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
         speak,
         cancel: cancelSpeech,
         isSpeaking: isAssistantSpeaking,
+        currentSentence, // Get currently speaking text
         hasSupport: hasTTSSupport
     } = useSpeechSynthesis();
 
@@ -45,7 +46,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
     const greetingTimeoutRef = useRef<number | null>(null);
     const processingRef = useRef(false);
 
-    // Initial greeting
+    // Initial greeting and auto-start listening
     useEffect(() => {
         if (!isOpen) {
             setFaceDetected(false);
@@ -61,42 +62,35 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
         // We delay slightly to allow UI transition
         const timer = setTimeout(() => {
             if (!isListening && !isAssistantSpeaking && !processingRef.current) {
+                console.log("[VoiceAI] Auto-starting listening...");
                 startListening();
             }
         }, 500);
 
         return () => clearTimeout(timer);
+    }, [isOpen, isListening, isAssistantSpeaking, startListening, cancelSpeech, stopListening]);
 
-        // Auto-greeting logic
+    // Separate effect for face detection greeting (optional feature)
+    useEffect(() => {
+        if (!isOpen) return;
+
         if (faceResult.hasFace && !faceDetected) {
             setFaceDetected(true);
             if (!faceDetectionInitialRef.current) {
                 setShowGreeting(true);
                 faceDetectionInitialRef.current = true;
 
-                // Auto-start listening after a short delay for greeting
-                // Or user might want it immediately? 
-                // Let's do greeting then listen.
                 const greetingText = "สวัสดีค่ะ มีอะไรให้ช่วยไหมคะ";
                 speak(greetingText);
-
-                // Wait for greeting to likely finish (approx 2s) then start listening
-                // But better: useSpeechSynthesis could have onEnd callback?
-                // For simplicity, let's start listening immediately after greeting starts 
-                // (Web Speech sometimes allows simultaneous, but echoing is issue).
-                // "Speed Demon" style: Listen immediately, software echo cancellation is browser handled usually.
-                setTimeout(() => {
-                    startListening();
-                }, 1000);
 
                 greetingTimeoutRef.current = window.setTimeout(() => {
                     setShowGreeting(false);
                 }, 5000);
             }
         } else if (!faceResult.hasFace && faceDetected) {
-            setFaceDetected(false); // Lost face, but don't reset everything
+            setFaceDetected(false);
         }
-    }, [isOpen, faceResult.hasFace, faceDetected, speak, stopListening, cancelSpeech]);
+    }, [isOpen, faceResult.hasFace, faceDetected, speak]);
 
     // Handle user speech result
     const handleUserSpeech = async (text: string) => {
@@ -178,28 +172,31 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                                 let splitIndex = -1;
 
                                 // Rule 1: First phrase needs to be fast! 
-                                // If haven't spoken yet and buffer has reasonable length (>10 chars)
-                                // We check for *any* pause to start speaking immediately.
-                                if (!isAssistantSpeaking && sentenceBuffer.length > 10) {
+                                // INCREASED THRESHOLD: Was >10, now >20 to prevent tiny first chunks
+                                if (!isAssistantSpeaking && sentenceBuffer.length > 20) {
                                     // Look for any weak pause (comma, space) to start ASAP
                                     const fastStartMatch = sentenceBuffer.match(/[, ]/);
-                                    if (fastStartMatch && fastStartMatch.index !== undefined && fastStartMatch.index > 5) {
+                                    if (fastStartMatch && fastStartMatch.index !== undefined && fastStartMatch.index > 10) {
                                         splitIndex = fastStartMatch.index + 1;
                                     }
                                 }
 
                                 // Rule 2: Normal flow (Strong punctuation)
                                 if (splitIndex === -1) {
-                                    const match = sentenceBuffer.match(/[.!?\n]+(?=\s|$)/);
-                                    if (match && match.index !== undefined) {
-                                        splitIndex = match.index + match[0].length;
+                                    // Only split if we have a decent chunk size to avoid choppy audio
+                                    if (sentenceBuffer.length > 50) {
+                                        const match = sentenceBuffer.match(/[.!?\n]+(?=\s|$)/);
+                                        if (match && match.index !== undefined) {
+                                            splitIndex = match.index + match[0].length;
+                                        }
                                     }
                                 }
 
                                 // Rule 3: Long buffer safety (prevent silence on long phrases)
-                                if (splitIndex === -1 && sentenceBuffer.length > 60) {
+                                // INCREASED THRESHOLD: Was >60, now >120 to allow longer flowing sentences
+                                if (splitIndex === -1 && sentenceBuffer.length > 120) {
                                     const lastSpace = sentenceBuffer.lastIndexOf(' ');
-                                    if (lastSpace > 20) {
+                                    if (lastSpace > 50) {
                                         splitIndex = lastSpace + 1;
                                     }
                                 }
@@ -217,7 +214,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                                 }
 
                                 // Emergency flush for huge chunks
-                                else if (sentenceBuffer.length > 150) {
+                                else if (sentenceBuffer.length > 250) {
                                     if (!isAssistantSpeaking) setStatus('speaking');
                                     speak(sentenceBuffer);
                                     sentenceBuffer = "";
@@ -305,10 +302,12 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             <div className="flex-1 flex flex-col items-center justify-center relative">
 
                 {/* Live Transcript Display */}
-                {(transcript || assistantMessage) && (
+                {(transcript || assistantMessage || currentSentence) && (
                     <div className="absolute top-1/4 w-full max-w-2xl px-8 text-center z-20 pointer-events-none">
                         <p className={`text-2xl font-light transition-all duration-300 ${status === 'listening' ? 'text-white opacity-100 scale-105' : 'text-white/50 scale-100'}`}>
-                            {status === 'listening' ? transcript : assistantMessage || transcript}
+                            {status === 'listening' ? transcript :
+                                status === 'speaking' ? (currentSentence || "...") :
+                                    (assistantMessage || transcript)}
                         </p>
                     </div>
                 )}
@@ -385,17 +384,17 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                         )}
 
                         <Button
-                            variant="outline"
+                            variant="default" // Changed from outline to default/solid
                             size="lg"
                             onClick={handleClose}
-                            className="rounded-full px-8 py-6 text-lg border-white/20 text-white/70 hover:bg-white/10 hover:text-white hover:border-white/50 transition-all duration-300"
+                            className="rounded-full px-8 py-6 text-lg bg-red-600 hover:bg-red-700 text-white border-0 shadow-lg transition-all duration-300"
                         >
                             <X className="w-5 h-5 mr-2" />
                             ปิด
                         </Button>
                     </div>
                 </div>
-                <p className="text-white/30 text-xs mt-4">Powered by Web Speech API</p>
+                <p className="text-white/30 text-xs mt-4">Powered by OpenAI & NongPlatoo AI</p>
             </div>
         </div>
     );

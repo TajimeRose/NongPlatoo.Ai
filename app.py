@@ -440,6 +440,80 @@ def get_memory_stats():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================
+# OpenAI Text-to-Speech API Endpoint
+# ============================================
+@app.route('/api/tts', methods=['POST'])
+def tts_endpoint():
+    """
+    Convert text to speech using OpenAI TTS API.
+    Returns audio as base64-encoded MP3.
+    
+    Request body:
+    {
+        "text": "สวัสดีค่ะ ยินดีต้อนรับ",
+        "voice": "nova"  // optional: alloy, echo, fable, onyx, nova, shimmer
+    }
+    
+    Response:
+    {
+        "success": true,
+        "audio": "base64-encoded-mp3-data",
+        "format": "mp3"
+    }
+    """
+    try:
+        import base64
+        from openai import OpenAI
+        
+        data = request.get_json(silent=True) or {}
+        text = data.get('text', '').strip()
+        voice = data.get('voice', 'shimmer')  # shimmer = female, clear voice
+        
+        if not text:
+            return jsonify({
+                'success': False,
+                'error': 'Text is required'
+            }), 400
+        
+        # Validate voice option
+        valid_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+        if voice not in valid_voices:
+            voice = 'nova'  # Default to female voice
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Call OpenAI TTS API
+        response = client.audio.speech.create(
+            model="tts-1",  # Use tts-1 for faster response, tts-1-hd for higher quality
+            voice=voice,
+            input=text,
+            response_format="mp3"
+        )
+        
+        # Get audio content and encode to base64
+        audio_content = response.content
+        audio_base64 = base64.b64encode(audio_content).decode('utf-8')
+        
+        logger.info(f"[TTS] Generated audio for {len(text)} chars using voice '{voice}'")
+        
+        return jsonify({
+            'success': True,
+            'audio': audio_base64,
+            'format': 'mp3',
+            'voice': voice,
+            'text_length': len(text)
+        })
+        
+    except Exception as e:
+        logger.error(f"[TTS] Error generating speech: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/messages/stream', methods=['POST'])
 def post_message_stream():
     """Streaming endpoint for chat responses using Server-Sent Events."""
