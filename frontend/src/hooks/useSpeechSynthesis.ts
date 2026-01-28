@@ -35,31 +35,72 @@ export const useSpeechSynthesis = () => {
 
         const utterance = new SpeechSynthesisUtterance(text);
 
-        // Better voice selection: Thai Language + Female preference
-        // Specific known female Thai voices across OS
-        const thaiVoices = voices.filter(v => v.lang.includes('th') || v.lang === 'th-TH');
+        // ============================================
+        // ENHANCED Voice Selection for Cross-Browser
+        // ============================================
 
-        let selectedVoice = thaiVoices.find(v => v.name.includes('Google') && v.name.includes('Thai')); // Google Thai (Female)
-        if (!selectedVoice) selectedVoice = thaiVoices.find(v => v.name.includes('Narisa')); // Mac/iOS (Female)
-        if (!selectedVoice) selectedVoice = thaiVoices.find(v => v.name.includes('Premwadee')); // Windows (Female)
-        if (!selectedVoice) selectedVoice = thaiVoices.find(v => v.name.toLowerCase().includes('female')); // Generic Female
-        if (!selectedVoice) selectedVoice = thaiVoices.find(v => v.name.toLowerCase().includes('neural')); // Edge Neural (High Quality)
-        if (!selectedVoice) selectedVoice = thaiVoices[0]; // Any Thai fallback
+        // Step 1: Find all Thai voices
+        const thaiVoices = voices.filter(v =>
+            v.lang === 'th-TH' ||
+            v.lang === 'th' ||
+            v.lang.startsWith('th-') ||
+            v.name.toLowerCase().includes('thai')
+        );
 
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
+        // Step 2: Priority selection (Best Thai Female Voices)
+        let selectedVoice: SpeechSynthesisVoice | undefined;
+
+        // Priority list (most common Thai female voices across platforms)
+        const voicePriority = [
+            // Chrome/Android
+            (v: SpeechSynthesisVoice) => v.name.includes('Google') && v.name.toLowerCase().includes('thai'),
+            // Windows 11
+            (v: SpeechSynthesisVoice) => v.name.includes('Premwadee'),
+            // macOS/iOS
+            (v: SpeechSynthesisVoice) => v.name.includes('Narisa'),
+            (v: SpeechSynthesisVoice) => v.name.includes('Kanya'),
+            // Edge Neural
+            (v: SpeechSynthesisVoice) => v.name.toLowerCase().includes('neural') && v.lang.includes('th'),
+            // Generic female
+            (v: SpeechSynthesisVoice) => v.name.toLowerCase().includes('female'),
+            // Samsung
+            (v: SpeechSynthesisVoice) => v.name.toLowerCase().includes('samsung'),
+        ];
+
+        for (const matcher of voicePriority) {
+            selectedVoice = thaiVoices.find(matcher);
+            if (selectedVoice) break;
         }
 
+        // Fallback: Any Thai voice
+        if (!selectedVoice && thaiVoices.length > 0) {
+            selectedVoice = thaiVoices[0];
+        }
+
+        // Step 3: Apply voice settings
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+            console.log(`🎤 Using Thai voice: "${selectedVoice.name}" (${selectedVoice.lang})`);
+        } else {
+            // No Thai voice available - log warning and use browser default
+            console.warn('⚠️ No Thai voice found! Available voices:', voices.map(v => `${v.name} (${v.lang})`));
+        }
+
+        // CRITICAL: Always set language to Thai even if no Thai voice found
+        // This helps the browser attempt to pronounce Thai text correctly
+        utterance.lang = 'th-TH';
+
         // Natural human speed and pitch
-        utterance.rate = 1.0; // 1.0 = Normal human speed
-        utterance.pitch = 1.0; // 1.0 = Natural pitch (no artificial shifting)
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
 
         utterance.onstart = () => setIsSpeaking(true);
         utterance.onend = () => {
             processingQueueRef.current = false;
             processQueue(); // Process next
         };
-        utterance.onerror = () => {
+        utterance.onerror = (e) => {
+            console.error('Speech synthesis error:', e);
             processingQueueRef.current = false;
             setIsSpeaking(false);
             processQueue(); // Skip to next
