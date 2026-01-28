@@ -114,25 +114,7 @@ const Navbar = () => {
               </Link>
             ))}
 
-            {/* Voice AI Trigger */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "ml-1 rounded-full w-10 h-10 transition-all duration-300 hover:scale-110",
-                isScrolled || !isHomePage
-                  ? "text-cyan-600 hover:bg-cyan-50 hover:text-cyan-700"
-                  : "text-cyan-200 hover:bg-white/10 hover:text-white"
-              )}
-              onClick={() => setIsVoiceOpen(true)}
-            >
-              <div className="relative">
-                <div className="absolute inset-0 bg-cyan-400/20 rounded-full animate-ping opacity-75"></div>
-                <div className="relative z-10 p-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
-                </div>
-              </div>
-            </Button>
+
 
             {!initializing && (
               user ? (
