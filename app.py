@@ -121,7 +121,7 @@ def set_security_headers(response):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Permissions-Policy"] = "geolocation=(self), microphone=*, camera=*"
     # Only add HSTS in production
     if os.getenv("FLASK_ENV") == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -1333,14 +1333,23 @@ def firebase_config():
 
 @app.route('/<path:path>')
 def spa_fallback(path: str):
+    # 1. Try to find the file in static roots first (e.g., models/, images/)
+    found = _find_static_file(path)
+    if found:
+        folder, fname = found
+        return send_from_directory(folder, path)
+
     if path == 'favicon.ico':
         found = _find_static_file('favicon.ico')
         if found:
             folder, fname = found
             return send_from_directory(folder, fname)
         abort(404)
+        
     if path.startswith(('api/', 'assets/', 'static/', 'firebase_config.js')):
         abort(404)
+        
+    # 2. If not found and not a reserved path, serve index.html for SPA routing
     found = _find_static_file('index.html')
     if found:
         folder, fname = found
