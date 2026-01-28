@@ -92,7 +92,7 @@ class GPTService:
             return
 
         try:
-            data_context = self._format_context_data(context_data, data_type)
+            data_context = self._format_context_data(context_data, data_type, intent_type)
             status_note = self._build_context_status_note(data_status, bool(context_data))
             preference_note = self._build_preference_note()
             search_instruction = self._build_search_instruction(language)
@@ -128,9 +128,9 @@ class GPTService:
             
             # Create streaming chat completion with extended timeout
             logger.info(f"[GPT] Starting streaming request with timeout={self.request_timeout}s, history_messages={len(messages)-2}")
-            stream_response = self.client.chat.completions.create(
+            stream_response = self.client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model_name,
-                messages=messages,
+                messages=messages,  # type: ignore[arg-type]
                 temperature=self.temperature,
                 top_p=self.top_p,
                 max_tokens=self.max_completion_tokens,
@@ -191,7 +191,7 @@ class GPTService:
             return self._build_fallback_payload(language, user_query, context_data, "no_openai_client")
 
         try:
-            data_context = self._format_context_data(context_data, data_type)
+            data_context = self._format_context_data(context_data, data_type, intent_type)
             status_note = self._build_context_status_note(data_status, bool(context_data))
             preference_note = self._build_preference_note()
             search_instruction = self._build_search_instruction(language)
@@ -311,12 +311,20 @@ class GPTService:
         """Detect if text is primarily Thai or English."""
         return detect_language(text)
 
-    def _format_context_data(self, context_data: List[Dict[str, Any]], data_type: str) -> str:
+    def _format_context_data(
+        self,
+        context_data: List[Dict[str, Any]],
+        data_type: str,
+        intent_type: Optional[str] = None,
+    ) -> str:
         if not context_data:
             return f"No verified {data_type} data available."
 
+        is_specific = intent_type == "specific"
+        max_items = 3 if is_specific else 6
+
         context_parts = [f"=== VERIFIED DATA ({data_type.upper()}) ===\n"]
-        for idx, item in enumerate(context_data[:3], 1):
+        for idx, item in enumerate(context_data[:max_items], 1):
             name = item.get("place_name") or item.get("name") or "Unknown"
             context_parts.append(f"\n[Place {idx}]")
             context_parts.append(f"Name: {name}")
@@ -331,65 +339,70 @@ class GPTService:
 
             place_info = item.get("place_information", {}) or {}
             detail = place_info.get("detail")
-            if detail:
-                context_parts.append(f"Description: {detail}")
-
             entry_description = item.get("description")
-            if entry_description and entry_description != detail:
-                context_parts.append(f"Summary: {entry_description}")
 
-            opening_hours = place_info.get("opening_hours")
-            if opening_hours:
-                context_parts.append(f"Opening Hours: {opening_hours}")
+            if is_specific:
+                if detail:
+                    context_parts.append(f"Description: {detail}")
+                if entry_description and entry_description != detail:
+                    context_parts.append(f"Summary: {entry_description}")
 
-            contact = place_info.get("contact", {}) or {}
-            phones = contact.get("phones") or []
-            if phones:
-                context_parts.append(f"Contact: {', '.join(phones)}")
-            socials = contact.get("socials")
-            if socials:
-                if isinstance(socials, list):
-                    context_parts.append(f"Social: {', '.join(socials[:3])}")
-                else:
-                    context_parts.append(f"Social: {socials}")
+                opening_hours = place_info.get("opening_hours")
+                if opening_hours:
+                    context_parts.append(f"Opening Hours: {opening_hours}")
 
-            category = item.get("category") or place_info.get("category_description")
-            if category:
-                context_parts.append(f"Category: {category}")
+                contact = place_info.get("contact", {}) or {}
+                phones = contact.get("phones") or []
+                if phones:
+                    context_parts.append(f"Contact: {', '.join(phones)}")
+                socials = contact.get("socials")
+                if socials:
+                    if isinstance(socials, list):
+                        context_parts.append(f"Social: {', '.join(socials[:3])}")
+                    else:
+                        context_parts.append(f"Social: {socials}")
 
-            best_time = item.get("best_time") or place_info.get("best_time")
-            if best_time:
-                context_parts.append(f"Best Time: {best_time}")
+                category = item.get("category") or place_info.get("category_description")
+                if category:
+                    context_parts.append(f"Category: {category}")
 
-            price = item.get("price_range") or place_info.get("price") or place_info.get("ticket_price")
-            if price:
-                context_parts.append(f"Cost: {price}")
+                best_time = item.get("best_time") or place_info.get("best_time")
+                if best_time:
+                    context_parts.append(f"Best Time: {best_time}")
 
-            tips = item.get("tips") or place_info.get("tips")
-            if tips:
-                if isinstance(tips, list):
-                    context_parts.append(f"Tips: {'; '.join(str(tip) for tip in tips[:3])}")
-                else:
-                    context_parts.append(f"Tips: {tips}")
+                price = item.get("price_range") or place_info.get("price") or place_info.get("ticket_price")
+                if price:
+                    context_parts.append(f"Cost: {price}")
 
-            highlights = item.get("highlights") or place_info.get("highlights")
-            if highlights:
-                if isinstance(highlights, list):
-                    context_parts.append(f"Highlights: {'; '.join(str(h) for h in highlights[:3])}")
-                else:
-                    context_parts.append(f"Highlights: {highlights}")
+                tips = item.get("tips") or place_info.get("tips")
+                if tips:
+                    if isinstance(tips, list):
+                        context_parts.append(f"Tips: {'; '.join(str(tip) for tip in tips[:3])}")
+                    else:
+                        context_parts.append(f"Tips: {tips}")
 
-            activities = item.get("activities") or place_info.get("activities")
-            if activities:
-                if isinstance(activities, list):
-                    context_parts.append(f"Activities: {'; '.join(str(a) for a in activities[:3])}")
-                else:
-                    context_parts.append(f"Activities: {activities}")
+                highlights = item.get("highlights") or place_info.get("highlights")
+                if highlights:
+                    if isinstance(highlights, list):
+                        context_parts.append(f"Highlights: {'; '.join(str(h) for h in highlights[:3])}")
+                    else:
+                        context_parts.append(f"Highlights: {highlights}")
 
-            lat = location.get("latitude")
-            lon = location.get("longitude")
-            if lat and lon:
-                context_parts.append(f"Coordinates: {lat}, {lon}")
+                activities = item.get("activities") or place_info.get("activities")
+                if activities:
+                    if isinstance(activities, list):
+                        context_parts.append(f"Activities: {'; '.join(str(a) for a in activities[:3])}")
+                    else:
+                        context_parts.append(f"Activities: {activities}")
+
+                lat = location.get("latitude")
+                lon = location.get("longitude")
+                if lat and lon:
+                    context_parts.append(f"Coordinates: {lat}, {lon}")
+            else:
+                summary = detail or entry_description
+                if summary:
+                    context_parts.append(f"Summary: {summary}")
 
         context_parts.append("\n=== END DATA ===")
         return "\n".join(context_parts)

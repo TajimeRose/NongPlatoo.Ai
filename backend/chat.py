@@ -9,11 +9,18 @@ import logging
 import os
 import re
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from .configs import PromptRepo
-from .db import get_db, Place, search_places, search_main_attractions, get_attractions_by_type, search_places_near_location
+from .db import (
+    get_db, 
+    Place, 
+    search_places, 
+    search_places_hybrid,
+    search_main_attractions, 
+    get_attractions_by_type, 
+    search_places_near_location
+)
 try:
     from .services.database import get_db_service
     DB_SERVICE_AVAILABLE = True
@@ -71,6 +78,11 @@ _MATCHER_CACHE_INITIALIZED = False
 
 _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}  # Query hash -> response
 _RESPONSE_CACHE_TIME: Dict[str, float] = {}  # Query hash -> timestamp
+
+# Query result cache - stores search results to avoid repeated database queries
+_QUERY_RESULT_CACHE: Dict[str, List[Dict[str, Any]]] = {}  # Query hash -> search results
+_QUERY_RESULT_CACHE_TIME: Dict[str, float] = {}  # Query hash -> timestamp
+_QUERY_RESULT_CACHE_TTL = 300  # 5 minutes
 
 LOCAL_KEYWORDS = PROMPT_REPO.get_prompt("chatbot/local_terms", default=DEFAULT_LOCAL_KEYWORDS)
 
@@ -427,7 +439,7 @@ class TravelChatbot:
         
         return {"target": query, "reference": None, "radius_km": 2, "has_reference": False}
 
-    def _resolve_location_coordinates(self, location_name: str) -> Optional[Dict[str, float]]:
+    def _resolve_location_coordinates(self, location_name: str) -> Optional[Dict[str, Any]]:
         """
         Resolve a location name to coordinates (lat/lng).
         Priority: 1) Check places DB, 2) Use Nominatim (free OSM geocoding)
@@ -448,11 +460,13 @@ class TravelChatbot:
                 Place.name.ilike(f"%{location_name}%")
             ).first()
             
-            if place and place.latitude and place.longitude:
+            if place is not None and place.latitude is not None and place.longitude is not None:
                 print(f"[INFO] Resolved '{location_name}' from places DB: {place.latitude}, {place.longitude}")
+                lat_value = float(place.latitude)  # type: ignore[arg-type]
+                lng_value = float(place.longitude)  # type: ignore[arg-type]
                 return {
-                    "lat": float(place.latitude),
-                    "lng": float(place.longitude),
+                    "lat": lat_value,
+                    "lng": lng_value,
                     "source": "database"
                 }
         except Exception as e:
@@ -923,23 +937,151 @@ class TravelChatbot:
         
         return False
 
+    def _detect_category_filter(self, query: str) -> Optional[str]:
+        """
+        Detect if user is asking for a specific category.
+        
+        Returns the Thai keyword to search in category column, or None if no specific category detected.
+        Maps user queries to actual category values in the database.
+        """
+        normalized_query = query.lower()
+        
+        # Category mapping based on actual database values:
+        # วัด: 47, ร้านอาหาร: 236, คาเฟ่: 19, สถานที่ท่องเที่ยว: 69,
+        # โรงแรม: 5, รีสอร์ท: 1, ที่พัก: 1, ตลาดน้ำ: 5, ตลาด: 3, ร้านค้า: 1
+        
+        category_mappings = {
+            'วัด': ['วัด', 'temple', 'วัดวา', 'ศาสนสถาน', 'สถานที่ศักดิ์สิทธิ์', 'วัดโบราณ'],
+            'ร้านอาหาร': ['ร้านอาหาร', 'restaurant', 'ภัตตาคาร', 'อาหาร', 'ร้าน', 'กิน'],
+            'คาเฟ่': ['คาเฟ่', 'cafe', 'coffee', 'กาแฟ', 'ร้านกาแฟ', 'คอฟฟี่'],
+            'สถานที่ท่องเที่ยว': ['สถานที่ท่องเที่ยว', 'tourist attraction', 'ที่เที่ยว', 'attraction', 'แหล่งท่องเที่ยว'],
+            'โรงแรม': ['โรงแรม', 'hotel', 'โฮเทล'],
+            'รีสอร์ท': ['รีสอร์ท', 'resort'],
+            'ที่พัก': ['ที่พัก', 'accommodation', 'ที่นอน', 'ที่อยู่'],
+            'ตลาดน้ำ': ['ตลาดน้ำ', 'floating market'],
+            'ตลาด': ['ตลาด', 'market', 'ตลาดสด'],
+            'ร้านค้า': ['ร้านค้า', 'shop', 'ร้าน'],
+        }
+        
+        for thai_keyword, keywords in category_mappings.items():
+            for keyword in keywords:
+                if keyword in normalized_query:
+                    return thai_keyword
+        
+        return None
+
+    def _detect_specific_place_query(self, query: str, search_results: List[Dict[str, Any]]) -> bool:
+        """
+        Detect if user is asking about a SPECIFIC place (by name) vs general suggestions.
+        
+        Returns True if:
+        - User mentions a specific place name from search results
+        - Query contains question words asking about "this place" or "that place"
+        - Only 1-2 results found (likely user is asking about specific places)
+        
+        Returns False if:
+        - User asks for suggestions/recommendations (generic)
+        - User asks "what are..." or "list..." (plural/general)
+        """
+        normalized_query = query.lower()
+        
+        # Indicators of asking for SPECIFIC place info
+        specific_place_indicators = [
+            "สถานที่นี้",      # this place
+            "ที่นี้",          # here / this place
+            "ที่เนี่ย",        # that place (Thai dialect)
+            "ที่นั่น",         # that place
+            "บอกเกี่ยวกับ",    # tell me about
+            "ขอข้อมูล",        # request information
+            "ราคา",           # price (for specific place)
+            "เวลา",           # time (for specific place)
+            "ติดต่อ",         # contact (specific)
+            "อยู่ที่ไหน",      # where is it
+            "ชั่วโมง",         # hours (specific)
+            "what about",      # specific
+            "tell me about",   # specific
+            "information about", # specific
+            "details of",      # specific
+        ]
+        
+        # Indicators of asking for SUGGESTIONS/MULTIPLE places
+        suggestions_indicators = [
+            "แนะนำ",          # recommend / suggest
+            "เสนอ",           # suggest / propose
+            "สุดฮิต",         # popular
+            "นิยม",           # popular/trending
+            "อะไร",           # what (generic)
+            "ไหน",            # where (generic)
+            "เปิด",           # open (generic query)
+            "ดี",             # good (generic)
+            "ต้องไป",         # must go
+            "ที่ไหนบ้าง",      # any other places
+            "อื่นๆ",          # others / alternatives
+            "เพิ่มเติม",       # more suggestions
+            # Category keywords (all from database)
+            "วัด",            # temples
+            "ร้านอาหาร",      # restaurants
+            "คาเฟ่",          # cafes
+            "สถานที่ท่องเที่ยว", # tourist attractions
+            "โรงแรม",         # hotels
+            "รีสอร์ท",        # resorts
+            "ที่พัก",         # accommodations
+            "ตลาดน้ำ",        # floating markets
+            "ตลาด",           # markets
+            "ร้านค้า",        # shops
+            "list",           # list (plural)
+            "give me",        # give me (plural)
+            "show me",        # show me (plural)
+            "any",            # any (general)
+        ]
+        
+        # Check for specific place indicators
+        for indicator in specific_place_indicators:
+            if indicator in normalized_query:
+                return True
+        
+        # Check for suggestions indicators
+        for indicator in suggestions_indicators:
+            if indicator in normalized_query:
+                return False
+        
+        # Check if place names are mentioned in query
+        for place in search_results[:5]:
+            place_name = (place.get('name') or place.get('place_name', '')).lower()
+            if place_name and place_name in normalized_query:
+                return True
+        
+        # Default: if only 1 result, assume specific; if 3+, assume suggestions
+        if len(search_results) <= 2:
+            return True
+        
+        return False
+
+
     def _match_travel_data(
         self,
         query: str,
         keywords: Optional[List[str]] = None,
         limit: Optional[int] = None,
         boost_keywords: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], str]:
         """
         Match travel data by performing a primary search with the full query and
-        then optionally expanding the search with additional keywords.  This helper
-        normalizes the ``limit`` parameter into a concrete integer value before
+        then optionally expanding the search with additional keywords. Returns results
+        with a query type indicator (specific or suggestions).
+        
+        This helper normalizes the ``limit`` parameter into a concrete integer value before
         using it, preventing type errors when ``limit`` is ``None``.  It returns
         up to that number of results from the combined searches.
         
-        IMPORTANT: If the query asks for "main attractions" (สถานที่ท่องเที่ยว),
-        filter ONLY by attraction_type='main_attraction' at SQL level.
+        IMPORTANT: If the query asks for specific categories (cafe, restaurant, market),
+        filter by attraction_type at SQL level. If asking for "main attractions",
+        filter ONLY by attraction_type='main_attraction'.
         The AI WILL NOT reclassify places - database classification is final.
+        
+        Returns:
+            tuple[List[Dict[str, Any]], str]: (results, query_type)
+                - query_type: 'specific' if asking about specific place, 'suggestions' if asking for recommendations
         """
         # Normalize the limit to an integer.  If the caller doesn't specify a
         # limit, use the runtime-configured limit (self.match_limit) or fall back
@@ -949,16 +1091,94 @@ class TravelChatbot:
             limit if isinstance(limit, int) and limit is not None else self.match_limit or 5
         )
 
+        # Check for category-specific queries first (cafe, restaurant, market, activity)
+        requested_category = self._detect_category_filter(query)
+        
         # Check if user is asking specifically for main attractions
         is_main_attraction_query = self._is_main_attractions_query(query)
+
+        # Normalize query for routing logic
+        query_lower = query.lower().strip()
+
+        # If the query is just a category (e.g., "วัด"), skip exact-name matching
+        category_only_query = bool(requested_category) and len(query_lower) <= (len(requested_category) + 2)
+
+        # FIRST: Try direct place name search (exact or substring match)
+        exact_place_results: List[Dict[str, Any]] = []
+        if not category_only_query and len(query_lower) >= 3:
+            direct_name_results: List[Dict[str, Any]] = search_places_hybrid(query, limit=limit_value * 2)
+            
+            # Filter for exact or very close name matches
+            for place in direct_name_results:
+                place_name = (place.get('place_name') or place.get('name', '')).lower()
+                if place_name:
+                    # Exact or near-exact match
+                    if place_name in query_lower or query_lower in place_name or place_name == query_lower:
+                        exact_place_results.append(place)
         
-        # Perform the initial DB search using the full query
-        if is_main_attraction_query:
-            # Use SQL-level filtering: ONLY main_attraction type
-            # The AI should not try to reclassify non-main attractions
-            results: List[Dict[str, Any]] = search_main_attractions(query, limit=limit_value)
+        # If we found exact place name matches, use those first
+        if exact_place_results:
+            logger.info(f"[EXACT PLACE MATCH] Found {len(exact_place_results)} places with name in query")
+            results = exact_place_results
         else:
-            results: List[Dict[str, Any]] = search_places(query, limit=limit_value)
+        
+            # Create cache key for this search
+            cache_key = hashlib.md5(f"{query}:{limit_value}:{is_main_attraction_query}:{requested_category}".encode()).hexdigest()
+            current_time = time.time()
+            
+            # Check query result cache first
+            global _QUERY_RESULT_CACHE, _QUERY_RESULT_CACHE_TIME
+            if (cache_key in _QUERY_RESULT_CACHE and 
+                current_time - _QUERY_RESULT_CACHE_TIME.get(cache_key, 0) < _QUERY_RESULT_CACHE_TTL):
+                logger.info(f"[CACHE HIT] Using cached search results for query")
+                results = _QUERY_RESULT_CACHE[cache_key]
+            else:
+                # Perform the initial DB search using the full query
+                # Use specific category filtering if detected
+                if is_main_attraction_query:
+                    # Use SQL-level filtering: ONLY main_attraction type
+                    # The AI should not try to reclassify non-main attractions
+                    results: List[Dict[str, Any]] = search_main_attractions(query, limit=limit_value)
+                elif requested_category:
+                    # Filter by specific category using the category column only
+                    logger.info(f"[CATEGORY FILTER] Searching for {requested_category} only")
+                    results: List[Dict[str, Any]] = get_attractions_by_type(requested_category, limit=limit_value)
+                
+                    # If no results found, fall back to hybrid search
+                    if not results:
+                        logger.info(f"[CATEGORY FALLBACK] No places with category '{requested_category}', using hybrid search")
+                        results = search_places_hybrid(query, limit=limit_value)
+                    elif results:
+                        # Filter the results to only those matching the search query
+                        # (in case some don't match the semantic/keyword search)
+                        from .semantic_search import get_embeddings as get_search_embeddings
+                        try:
+                            from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+                            import numpy as np
+                            model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                            query_embedding = model.encode(query)
+                            # Re-rank results by semantic similarity to query
+                            from sklearn.metrics.pairwise import cosine_similarity
+                            ranked_results = []
+                            for place in results:
+                                if place.get('embedding'):
+                                    query_array = np.array([query_embedding])
+                                    place_array = np.array([place['embedding']])
+                                    similarity = cosine_similarity(query_array, place_array)[0][0]
+                                    place['_search_similarity'] = float(similarity)
+                                    ranked_results.append(place)
+                            # Only replace results if we actually have embeddings
+                            if ranked_results:
+                                results = sorted(ranked_results, key=lambda x: x.get('_search_similarity', 0), reverse=True)[:limit_value]
+                        except Exception as e:
+                            logger.warning(f"Could not re-rank by similarity: {e}, using database order")
+                else:
+                    # Use hybrid search: combines semantic understanding with exact keyword matching
+                    results: List[Dict[str, Any]] = search_places_hybrid(query, limit=limit_value)
+                
+                # Store in cache
+                _QUERY_RESULT_CACHE[cache_key] = results
+                _QUERY_RESULT_CACHE_TIME[cache_key] = current_time
 
         # If the caller provided additional keywords, search each keyword and
         # merge any new results until we reach the limit.  Use a small fixed
@@ -969,15 +1189,49 @@ class TravelChatbot:
                     break
                 if is_main_attraction_query:
                     kw_results = search_main_attractions(kw, limit=2)
+                elif requested_category:
+                    # Keep filtering by category even for keyword expansion
+                    kw_results = get_attractions_by_type(requested_category, limit=2)
                 else:
-                    kw_results = search_places(kw, limit=2)
+                    # Use hybrid search for keyword expansion too
+                    kw_results = search_places_hybrid(kw, limit=2)
                 for res in kw_results:
                     # Avoid adding duplicates by checking the 'id' field
                     if not any(r.get('id') == res.get('id') for r in results):
                         results.append(res)
 
         # Trim the final result list to the normalized limit
-        return results[:limit_value]
+        final_results = results[:limit_value]
+        
+        # Prioritize exact place name matches - move to top if user mentions specific place name
+        normalized_query = query.lower()
+        exact_match_found = False
+        for i, place in enumerate(final_results):
+            place_name = (place.get('place_name') or place.get('name', '')).lower()
+            # Check if place name (or significant parts) appear in query
+            if place_name and len(place_name) > 2:
+                # Simple match: place name appears in query
+                if place_name in normalized_query:
+                    if i > 0:
+                        # Move to top
+                        final_results.insert(0, final_results.pop(i))
+                    exact_match_found = True
+                    break
+                # Partial match: key words of place name appear in query
+                place_words = place_name.split()
+                if any(word in normalized_query for word in place_words if len(word) > 2):
+                    if i > 0:
+                        final_results.insert(0, final_results.pop(i))
+                    exact_match_found = True
+                    break
+        
+        # Detect query type (specific place vs suggestions)
+        is_specific_query = self._detect_specific_place_query(query, final_results)
+        query_type = "specific" if is_specific_query else "suggestions"
+        
+        # Show all results found (no additional limiting)
+        logger.info(f"[QUERY TYPE] {query_type} - showing {len(final_results)} places")
+        return final_results, query_type
 
     def _add_classification_context(self, results: List[Dict[str, Any]]) -> str:
         """
@@ -1145,17 +1399,18 @@ class TravelChatbot:
         self,
         entries: List[Dict[str, Any]],
         limit: Optional[int] = None,
-        is_specific_place: bool = False,
+        query_type: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         if not entries:
             return []
         
-        # If asking about a specific place, return only 1 result
-        if is_specific_place:
-            max_count = 1
+        # If asking about a specific place, return up to 3 results
+        if query_type == "specific":
+            max_count = min(limit, 3) if limit is not None else 3
         else:
-            # Category/general queries get 4-5 results
-            max_count = limit if limit is not None else (self.display_limit or 4)
+            # Category/general queries get 5-6 results
+            base_limit = limit if limit is not None else (self.display_limit or 6)
+            max_count = max(base_limit, 5)
         
         trimmed: List[Dict[str, Any]] = []
         seen: set[str] = set()
@@ -1571,7 +1826,8 @@ class TravelChatbot:
 
         # Step 2: INTENT CLASSIFICATION
         intent_classification = self._classify_intent(user_message)
-        intent_type = intent_classification["intent_type"]
+        classified_intent_type = intent_classification["intent_type"]
+        intent_type = classified_intent_type
         clean_question = intent_classification["clean_question"]
         
         # Parallelize keyword detection and matcher analysis for faster processing
@@ -1630,8 +1886,9 @@ class TravelChatbot:
         # Use location-aware results if found, otherwise fall back to standard search
         if location_aware_results:
             matched_data = location_aware_results
+            query_type = "specific" if self._detect_specific_place_query(user_message, matched_data) else "suggestions"
         else:
-            matched_data = self._match_travel_data(
+            matched_data, query_type = self._match_travel_data(
                 user_message,
                 keywords=keyword_pool,
                 boost_keywords=matcher_signals.get("keywords"),
@@ -1640,7 +1897,7 @@ class TravelChatbot:
             fallback_keywords = self._auto_detect_keywords(user_message)
             if fallback_keywords:
                 keyword_pool = self._merge_keywords(keyword_pool, fallback_keywords)
-                matched_data = self._match_travel_data(
+                matched_data, query_type = self._match_travel_data(
                     user_message,
                     keywords=keyword_pool,
                     boost_keywords=matcher_signals.get("keywords"),
@@ -1664,10 +1921,10 @@ class TravelChatbot:
             matched_data = self._merge_structured_data(matched_data, trip_matches)
         
         # Detect if this is a specific place query vs category query
-        is_specific_place = self._is_specific_place_query(user_message, matched_data)
+        is_specific_place = query_type == "specific"
         
-        # Trim results based on query type (1 for specific place, 4-5 for categories)
-        matched_data = self._trim_structured_results(matched_data, is_specific_place=is_specific_place)
+        # Trim results based on query type (1-3 for specific place, 5-6 for suggestions)
+        matched_data = self._trim_structured_results(matched_data, query_type=query_type)
         
         preference_note = self._preference_context()
         character_note = self._character_context()
@@ -1726,9 +1983,12 @@ class TravelChatbot:
             not includes_local_term
             and self._mentions_other_province(user_message, keyword_pool, analysis.get("places", []))
         )
-        detected_intent = intent_type  # Use new intent classification (specific/general)
+        # Use query-informed intent type for downstream formatting
+        intent_type = query_type
+        detected_intent = intent_type
         data_status = {
-            'intent_type': intent_type,  # Add intent type to status
+            'intent_type': intent_type,  # Query-informed intent type
+            'classified_intent_type': classified_intent_type,
             'success': bool(matched_data),
             'message': (
                 f"Matched {len(matched_data)} entries" + 
@@ -1853,10 +2113,11 @@ class TravelChatbot:
 
         # Intent classification
         intent_classification = self._classify_intent(user_message)
-        intent_type = intent_classification["intent_type"]
+        classified_intent_type = intent_classification["intent_type"]
+        intent_type = classified_intent_type
         clean_question = intent_classification["clean_question"]
         
-        # Send intent info
+        # Send intent info (classification-based; may be refined after search)
         yield {"type": "intent", "intent_type": intent_type}
         
         # Analyze and match data
@@ -1879,17 +2140,23 @@ class TravelChatbot:
             if fallback_keywords:
                 keyword_pool = self._merge_keywords(keyword_pool, fallback_keywords)
 
-        matched_data = self._match_travel_data(user_message, keywords=keyword_pool, boost_keywords=matcher_signals.get("keywords"))
+        matched_data, query_type = self._match_travel_data(
+            user_message,
+            keywords=keyword_pool,
+            boost_keywords=matcher_signals.get("keywords")
+        )
+        intent_type = query_type
         
         # Send structured data
         if matched_data:
-            yield {"type": "structured_data", "data": matched_data[:5]}
+            yield {"type": "structured_data", "data": matched_data}
         
         preference_note = self._preference_context()
         character_note = self._character_context()
         
         data_status = {
             'intent_type': intent_type,
+            'classified_intent_type': classified_intent_type,
             'success': bool(matched_data),
             'message': f"Matched {len(matched_data)} entries" if matched_data else "No matches found",
             'data_available': bool(matched_data),

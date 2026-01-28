@@ -92,9 +92,17 @@ def create_vector_index():
             print(f"⚠ Could not create index (you can create it later): {e}")
 
 
-def generate_embeddings():
-    """Generate embeddings for all places"""
+def generate_embeddings(force_regenerate=False):
+    """
+    Generate embeddings for all places.
+    
+    Args:
+        force_regenerate: If True, regenerate embeddings for ALL places (even those with existing embeddings)
+    """
     print("\n🚀 Starting embedding generation...\n")
+    
+    if force_regenerate:
+        print("⚠️  FORCE MODE: Will regenerate ALL embeddings\n")
     
     # Load the model
     print("Loading sentence-transformers model...")
@@ -121,17 +129,42 @@ def generate_embeddings():
         skipped_count = 0
         
         for idx, place in enumerate(places, 1):
-            # Check if already has embedding
-            if place.description_embedding is not None:
+            # Skip if already has embedding (unless force mode)
+            if not force_regenerate and place.description_embedding is not None:
                 print(f"[{idx}/{total}] ⏭  Skipping '{place.name}' (already has embedding)")
                 skipped_count += 1
                 continue
             
-            # Combine name and description for better context
-            text_to_embed = f"{place.name or ''} {place.description or ''}".strip()
+            # Build comprehensive text including ALL relevant fields for better search
+            text_parts = []
             
-            if not text_to_embed:
-                print(f"[{idx}/{total}] ⚠  Skipping '{place.name}' (no text content)")
+            # Core information
+            if place.name:
+                text_parts.append(f"Name: {place.name}")
+            if place.description:
+                text_parts.append(f"Description: {place.description}")
+            
+            # Type and category information
+            if place.category:
+                text_parts.append(f"Category: {place.category}")
+            if place.attraction_type:
+                text_parts.append(f"Type: {place.attraction_type}")
+            
+            # Location details
+            if place.address:
+                text_parts.append(f"Location: {place.address}")
+            
+            # Operational information
+            if place.opening_hours:
+                text_parts.append(f"Hours: {place.opening_hours}")
+            if place.price_range:
+                text_parts.append(f"Price: {place.price_range}")
+            
+            # Combine all parts
+            text_to_embed = " | ".join(text_parts).strip()
+            
+            if not text_to_embed or text_to_embed == "":
+                print(f"[{idx}/{total}] ⚠  Skipping '{place.name or 'Unknown'}' (no text content)")
                 skipped_count += 1
                 continue
             
@@ -167,8 +200,15 @@ def generate_embeddings():
 
 def main():
     """Main execution"""
+    import sys
+    
+    # Check for --force flag to regenerate all embeddings
+    force_regenerate = '--force' in sys.argv or '--regenerate' in sys.argv
+    
     print("="*60)
     print("  pgvector Embedding Generation for Places")
+    if force_regenerate:
+        print("  🔄 FORCE MODE: Regenerating ALL embeddings")
     print("="*60 + "\n")
     
     try:
@@ -178,13 +218,15 @@ def main():
         # Step 2: Add vector column
         add_vector_column_if_not_exists()
         
-        # Step 3: Generate embeddings
-        generate_embeddings()
+        # Step 3: Generate embeddings (with force flag if specified)
+        generate_embeddings(force_regenerate=force_regenerate)
         
         # Step 4: Create index
         create_vector_index()
         
-        print("\n🎉 All done! Your places now have vector embeddings.")
+        print("\n🎉 All done! Your places now have ENHANCED vector embeddings.")
+        print("   Embeddings now include: name, description, category, type,")
+        print("   location, opening hours, and price range.")
         print("   You can now use semantic search in your API.\n")
         
     except Exception as e:

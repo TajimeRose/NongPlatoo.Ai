@@ -137,17 +137,123 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
   );
 };
 
+// Main place detail card - larger, more prominent
+const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: string }) => {
+  const [imageErrored, setImageErrored] = useState(false);
+
+  const name = place.place_name || place.name || "สถานที่";
+  const desc = place.short_description || place.description || "ข้อมูลสถานที่เพิ่มเติม";
+  const typeLabel = place.category || normalizeType(place.type);
+  const locationText = formatLocation(place.location) || place.address;
+
+  // Robust image extraction
+  const extractImages = (imgs: unknown): string[] => {
+    if (!imgs) return [];
+    if (Array.isArray(imgs)) return imgs.filter((u) => u).map((u) => String(u).trim());
+    if (typeof imgs === 'string') {
+      const trimmed = imgs.trim();
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) return parsed.filter((u) => u).map((u) => String(u).trim());
+        } catch (e) {
+          console.warn('Failed to parse images JSON:', e);
+        }
+      }
+      return trimmed ? [trimmed] : [];
+    }
+    return [];
+  };
+
+  const imageUrls = extractImages(place.images);
+  const primaryImage = imageUrls[0];
+
+  const getProxiedImageUrl = (url: string): string => {
+    if (!url) return fallback;
+    if (url.startsWith('https://lh3.googleusercontent.com')) {
+      return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const imageSrc = imageErrored || !primaryImage ? fallback : getProxiedImageUrl(primaryImage);
+
+  const handleImageError = () => {
+    setImageErrored(true);
+  };
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-lg">
+      {/* Image Section */}
+      <div className="relative aspect-video overflow-hidden">
+        <img
+          src={imageSrc}
+          alt={name}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          crossOrigin="anonymous"
+          referrerPolicy="no-referrer"
+          onError={handleImageError}
+        />
+      </div>
+
+      {/* Content Section */}
+      <div className="p-4 space-y-3">
+        {typeLabel && <p className="text-sm font-medium text-primary">{typeLabel}</p>}
+        <h3 className="text-xl font-bold text-foreground">{name}</h3>
+        <p className="text-sm text-foreground/80 leading-relaxed">{desc}</p>
+
+        <div className="space-y-2 pt-2">
+          {locationText && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <MapPin className="w-4 h-4 flex-shrink-0" />
+              <span>{locationText}</span>
+            </div>
+          )}
+          {place.opening_hours && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Clock className="w-4 h-4 flex-shrink-0" />
+              <span>{place.opening_hours}</span>
+            </div>
+          )}
+          {place.contact && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Phone className="w-4 h-4 flex-shrink-0" />
+              <span>{place.contact}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const StructuredPlaces = ({ places }: { places: StructuredPlace[] }) => {
   if (!places.length) return null;
+
+  const mainPlace = places[0];
+  const recommendedPlaces = places.slice(1);
+
   return (
-    <div className="mt-3 space-y-3">
-      {places.map((place, index) => (
-        <StructuredPlaceCard
-          key={place.id || `${place.place_name || place.name || "place"}-${index}`}
-          place={place}
-          fallback={fallbackImage}
-        />
-      ))}
+    <div className="mt-4 space-y-4">
+      {/* Main Place Detail */}
+      <MainPlaceCard place={mainPlace} fallback={fallbackImage} />
+
+      {/* Recommended Places */}
+      {recommendedPlaces.length > 0 && (
+        <div>
+          <p className="text-sm font-semibold text-muted-foreground mb-2">อื่นๆ ที่แนะนำ</p>
+          <div className="space-y-2">
+            {recommendedPlaces.map((place, index) => (
+              <StructuredPlaceCard
+                key={place.id || `${place.place_name || place.name || "place"}-${index}`}
+                place={place}
+                fallback={fallbackImage}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
