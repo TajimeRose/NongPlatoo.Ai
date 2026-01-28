@@ -1,0 +1,206 @@
+import { useState, useCallback, useRef } from 'react';
+
+/**
+ * useSpeechSynthesis - OpenAI TTS Edition
+ * 
+ * Uses OpenAI TTS API for consistent Thai voice across all devices.
+ * Falls back to Web Speech API if OpenAI TTS fails.
+ */
+export const useSpeechSynthesis = () => {
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [currentSentence, setCurrentSentence] = useState<string | null>(null);
+
+    // Queue system for sequential playback
+    const queueRef = useRef<string[]>([]);
+    const prefetchQueueRef = useRef<Map<string, Blob>>(new Map()); // Store pre-fetched audio
+    const processingRef = useRef(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    // Helper to fetch audio (internal)
+    const fetchAudio = async (text: string, signal?: AbortSignal): Promise<Blob> => {
+        // Check cache first
+        if (prefetchQueueRef.current.has(text)) {
+            const blob = prefetchQueueRef.current.get(text)!;
+            prefetchQueueRef.current.delete(text);
+            return blob;
+        }
+
+        let attempt = 0;
+        const maxAttempts = 3;
+
+        while (attempt < maxAttempts) {
+            try {
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: 'shimmer',
+                        speed: 1.25
+                    }),
+                    signal: signal
+                });
+
+                if (!response.ok) {
+                    throw new Error(`TTS API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!data.success || !data.audio) {
+                    throw new Error(data.error || 'No audio returned');
+                }
+
+                return base64ToBlob(data.audio, 'audio/mpeg');
+            } catch (e) {
+                attempt++;
+                if (attempt >= maxAttempts) throw e;
+                await new Promise(r => setTimeout(r, 500 * attempt));
+            }
+        }
+        throw new Error('Failed to fetch TTS');
+    };
+
+    // Trigger pre-fetch for the NEXT item in queue
+    const triggerPrefetch = useCallback(() => {
+        if (queueRef.current.length > 0) {
+            const nextText = queueRef.current[0];
+            if (!prefetchQueueRef.current.has(nextText)) {
+                // Determine a unique way to track this request if needed, 
+                // but for now just fire and forget into the map
+                fetchAudio(nextText).then(blob => {
+                    prefetchQueueRef.current.set(nextText, blob);
+                }).catch(e => console.warn('Prefetch failed', e));
+            }
+        }
+    }, []);
+
+    // Process the queue - fetch audio from OpenAI TTS and play
+    const processQueue = useCallback(async () => {
+        if (queueRef.current.length === 0 || processingRef.current) {
+            if (queueRef.current.length === 0) {
+                setIsSpeaking(false);
+            }
+            return;
+        }
+
+        processingRef.current = true;
+        setIsSpeaking(true);
+
+        const text = queueRef.current.shift()!;
+        setCurrentSentence(text);
+
+        // IMMEDIATE: Trigger pre-fetch for the *next* item while current one processes
+        triggerPrefetch();
+
+        try {
+            abortControllerRef.current = new AbortController();
+
+            // Get audio (from cache or fetch)
+            const audioBlob = await fetchAudio(text, abortControllerRef.current.signal);
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            audioRef.current = new Audio(audioUrl);
+
+            await new Promise<void>((resolve, reject) => {
+                if (!audioRef.current) {
+                    reject(new Error('Audio element not created'));
+                    return;
+                }
+
+                audioRef.current.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                    resolve();
+                };
+
+                audioRef.current.onerror = (e) => {
+                    URL.revokeObjectURL(audioUrl);
+                    reject(e);
+                };
+
+                audioRef.current.play().catch(reject);
+            });
+
+        } catch (error) {
+            if ((error as Error).name === 'AbortError') {
+                console.log('🛑 TTS playback cancelled');
+            } else {
+                console.error('TTS error:', error);
+                console.warn('TTS failed and fallback is disabled');
+            }
+        } finally {
+            processingRef.current = false;
+            audioRef.current = null;
+            abortControllerRef.current = null;
+
+            // Process next in queue
+            processQueue();
+        }
+    }, [triggerPrefetch]);
+
+    // ... (keep fallbackToWebSpeech commented out or as is)
+
+    // Public speak function
+    const speak = useCallback((text: string, force = false) => {
+        if (force) {
+            // Clear queue and cancel current audio
+            queueRef.current = [];
+            setCurrentSentence(null); // Clear text
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current = null;
+            }
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+            window.speechSynthesis?.cancel();
+            processingRef.current = false;
+        }
+
+        queueRef.current.push(text);
+
+        if (!processingRef.current) {
+            processQueue();
+        }
+    }, [processQueue]);
+
+    // Cancel all speech
+    const cancel = useCallback(() => {
+        queueRef.current = [];
+        processingRef.current = false;
+        setCurrentSentence(null);
+
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        window.speechSynthesis?.cancel();
+        setIsSpeaking(false);
+    }, []);
+
+    return {
+        speak,
+        cancel,
+        isSpeaking,
+        currentSentence, // Export this
+        hasSupport: true
+    };
+};
+
+// Helper function to convert base64 to Blob
+function base64ToBlob(base64: string, mimeType: string): Blob {
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+}

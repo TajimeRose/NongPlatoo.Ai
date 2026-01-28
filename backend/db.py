@@ -83,7 +83,7 @@ class Place(Base):
 
     __tablename__ = "places"
 
-    # Actual columns in the database
+    # Actual columns in the database (verified via check_images.py)
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     category = Column(String)
@@ -387,22 +387,21 @@ def save_google_place_to_db(place_data: Dict[str, Any]) -> bool:
         session_factory = get_session_factory()
         
         with session_factory() as session:
-            # Check if already exists by place_id
-            place_id = place_data.get('place_id', '')
-            if not place_id:
+            # Check if already exists by name (place_id column doesn't exist)
+            place_name = place_data.get('name', '')
+            if not place_name:
                 return False
                 
             existing = session.query(Place).filter(
-                Place.place_id == place_id
+                Place.name == place_name
             ).first()
             
             if existing:
                 return True  # Already in DB
             
-            # Create new Place entry
+            # Create new Place entry (without place_id - column doesn't exist)
             new_place = Place(
-                place_id=place_id,
-                name=place_data.get('name', 'Unknown'),
+                name=place_name,
                 category=place_data.get('category', 'From Google Maps'),
                 description=place_data.get('description', ''),
                 address=place_data.get('address', ''),
@@ -412,7 +411,7 @@ def save_google_place_to_db(place_data: Dict[str, Any]) -> bool:
             )
             session.add(new_place)
             session.commit()
-            print(f"[DB] Saved Google place '{place_data.get('name')}' to database")
+            print(f"[DB] Saved Google place '{place_name}' to database")
             return True
             
     except Exception as e:

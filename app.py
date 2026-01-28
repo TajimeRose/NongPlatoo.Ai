@@ -464,6 +464,80 @@ def get_memory_stats():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================
+# OpenAI Text-to-Speech API Endpoint
+# ============================================
+@app.route('/api/tts', methods=['POST'])
+def tts_endpoint():
+    """
+    Convert text to speech using OpenAI TTS API.
+    Returns audio as base64-encoded MP3.
+    
+    Request body:
+    {
+        "text": "สวัสดีค่ะ ยินดีต้อนรับ",
+        "voice": "nova"  // optional: alloy, echo, fable, onyx, nova, shimmer
+    }
+    
+    Response:
+    {
+        "success": true,
+        "audio": "base64-encoded-mp3-data",
+        "format": "mp3"
+    }
+    """
+    try:
+        import base64
+        from openai import OpenAI
+        
+        data = request.get_json(silent=True) or {}
+        text = data.get('text', '').strip()
+        voice = data.get('voice', 'shimmer')  # shimmer = female, clear voice
+        
+        if not text:
+            return jsonify({
+                'success': False,
+                'error': 'Text is required'
+            }), 400
+        
+        # Validate voice option
+        valid_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+        if voice not in valid_voices:
+            voice = 'nova'  # Default to female voice
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        
+        # Call OpenAI TTS API
+        response = client.audio.speech.create(
+            model="tts-1",  # Use tts-1 for faster response, tts-1-hd for higher quality
+            voice=voice,
+            input=text,
+            response_format="mp3"
+        )
+        
+        # Get audio content and encode to base64
+        audio_content = response.content
+        audio_base64 = base64.b64encode(audio_content).decode('utf-8')
+        
+        logger.info(f"[TTS] Generated audio for {len(text)} chars using voice '{voice}'")
+        
+        return jsonify({
+            'success': True,
+            'audio': audio_base64,
+            'format': 'mp3',
+            'voice': voice,
+            'text_length': len(text)
+        })
+        
+    except Exception as e:
+        logger.error(f"[TTS] Error generating speech: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/messages/stream', methods=['POST'])
 def post_message_stream():
     """Streaming endpoint for chat responses using Server-Sent Events."""
@@ -615,6 +689,7 @@ def post_message_stream():
                     }
                 
                 # Send structured data
+                logger.info(f"[Stream] matched_data count: {len(matched_data) if matched_data else 0}")
                 if matched_data:
                     yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:6]}, ensure_ascii=False) + "\n\n"
                 
@@ -1274,7 +1349,7 @@ def spa_fallback(path: str):
 
 @app.route('/api/image-proxy', methods=['GET'])
 def image_proxy():
-    """Proxy endpoint to serve Google Maps images and bypass CORS restrictions."""
+    """Proxy endpoint to serve Google Maps images and bypass CORS/403 restrictions."""
     try:
         import requests
         from io import BytesIO
@@ -1284,18 +1359,64 @@ def image_proxy():
             return jsonify({'error': 'URL parameter required'}), 400
         
         # Security: Only allow Google image URLs
-        if not image_url.startswith('https://lh3.googleusercontent.com'):
+        allowed_prefixes = [
+            'https://lh3.googleusercontent.com',
+            'https://maps.googleapis.com',
+            'https://lh5.googleusercontent.com',
+            'https://streetviewpixels-pa.googleapis.com'
+        ]
+        
+        if not any(image_url.startswith(prefix) for prefix in allowed_prefixes):
             return jsonify({'error': 'Only Google image URLs are allowed'}), 403
         
-        # Fetch the image from Google
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.google.com/'
-        }
-        response = requests.get(image_url, headers=headers, timeout=10, stream=True)
+        # Enhanced headers to bypass Google's blocks
+        headers_list = [
+            {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,th;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.google.com/maps/',
+                'Sec-Fetch-Dest': 'image',
+                'Sec-Fetch-Mode': 'no-cors',
+                'Sec-Fetch-Site': 'cross-site',
+            },
+            {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+                'Accept': 'image/*,*/*;q=0.8',
+                'Referer': 'https://maps.google.com/',
+            },
+            {
+                'User-Agent': 'Googlebot-Image/1.0',
+            }
+        ]
         
-        if response.status_code != 200:
-            return jsonify({'error': 'Failed to fetch image'}), response.status_code
+        # Try different headers
+        response = None
+        for headers in headers_list:
+            try:
+                response = requests.get(image_url, headers=headers, timeout=10, stream=True, allow_redirects=True)
+                if response.status_code == 200:
+                    break
+            except requests.RequestException:
+                continue
+        
+        # If all attempts failed, return a fallback placeholder
+        if not response or response.status_code != 200:
+            # Return a simple SVG placeholder
+            placeholder_svg = '''<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+                <rect fill="#f0f0f0" width="400" height="300"/>
+                <text x="50%" y="45%" text-anchor="middle" fill="#888" font-size="16" font-family="sans-serif">รูปภาพไม่พร้อมใช้งาน</text>
+                <text x="50%" y="55%" text-anchor="middle" fill="#aaa" font-size="12" font-family="sans-serif">Image unavailable</text>
+            </svg>'''
+            return Response(
+                placeholder_svg,
+                mimetype='image/svg+xml',
+                headers={
+                    'Cache-Control': 'public, max-age=3600',
+                    'Access-Control-Allow-Origin': '*'
+                }
+            )
         
         # Determine content type
         content_type = response.headers.get('Content-Type', 'image/jpeg')
@@ -1311,7 +1432,16 @@ def image_proxy():
         )
     except Exception as e:
         logger.error(f"Image proxy error: {e}")
-        return jsonify({'error': str(e)}), 500
+        # Return placeholder on error
+        placeholder_svg = '''<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+            <rect fill="#f0f0f0" width="400" height="300"/>
+            <text x="50%" y="50%" text-anchor="middle" fill="#888" font-size="14" font-family="sans-serif">Error loading image</text>
+        </svg>'''
+        return Response(
+            placeholder_svg,
+            mimetype='image/svg+xml',
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
 
 if __name__ == '__main__':
     print("Samut Songkhram Travel Assistant")

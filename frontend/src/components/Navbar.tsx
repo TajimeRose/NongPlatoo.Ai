@@ -16,9 +16,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/use-toast";
 import logoImage from "@/assets/น้องปลาทู.png";
 
+import VoiceAIInterface from "@/components/VoiceAIInterface";
+
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -110,6 +113,8 @@ const Navbar = () => {
                 </Button>
               </Link>
             ))}
+
+
 
             {!initializing && (
               user ? (
@@ -233,6 +238,8 @@ const Navbar = () => {
           </div>
         </div>
       )}
+      {/* Voice AI Interface */}
+      <VoiceAIInterface isOpen={isVoiceOpen} onClose={() => setIsVoiceOpen(false)} />
     </nav>
   );
 };
