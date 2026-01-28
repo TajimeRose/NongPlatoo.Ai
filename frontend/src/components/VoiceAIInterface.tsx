@@ -1,72 +1,277 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Sparkles } from "lucide-react";
+import { X, Sparkles, Mic, MicOff, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFaceDetection } from "@/hooks/useFaceDetection";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis";
 
 interface VoiceAIInterfaceProps {
     isOpen: boolean;
     onClose: () => void;
-    onSpeak?: (text: string) => void;
 }
 
-const VoiceAIInterface = ({ isOpen, onClose, onSpeak }: VoiceAIInterfaceProps) => {
-    const [isListening, setIsListening] = useState(false);
+const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
+    // Hooks
+    const {
+        isListening,
+        transcript,
+        startListening,
+        stopListening,
+        hasSupport: hasSTTSupport
+    } = useSpeechRecognition({
+        language: 'th-TH',
+        continuous: false, // Stop after one sentence to process
+        onResult: (result) => handleUserSpeech(result)
+    });
+
+    const {
+        speak,
+        cancel: cancelSpeech,
+        isSpeaking: isAssistantSpeaking,
+        hasSupport: hasTTSSupport
+    } = useSpeechSynthesis();
+
+    const { videoRef, result: faceResult } = useFaceDetection(isOpen);
+
+    // State
+    const [status, setStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
     const [pulseIntensity, setPulseIntensity] = useState(0);
     const [faceDetected, setFaceDetected] = useState(false);
     const [showGreeting, setShowGreeting] = useState(false);
-    const greetingTimeoutRef = useRef<number | null>(null);
+    const [assistantMessage, setAssistantMessage] = useState("");
+
+    // Refs
     const faceDetectionInitialRef = useRef(false);
+    const greetingTimeoutRef = useRef<number | null>(null);
+    const processingRef = useRef(false);
 
-    const { videoRef, result: faceResult, isLoading } = useFaceDetection(isOpen);
-
-    // Handle face detection
+    // Initial greeting
     useEffect(() => {
         if (!isOpen) {
             setFaceDetected(false);
             setShowGreeting(false);
-            if (greetingTimeoutRef.current) {
-                clearTimeout(greetingTimeoutRef.current);
-            }
+            setStatus('idle');
+            cancelSpeech();
+            stopListening();
+            if (greetingTimeoutRef.current) clearTimeout(greetingTimeoutRef.current);
             return;
         }
 
+        // Auto-start listening immediately on mount (if ready)
+        // We delay slightly to allow UI transition
+        const timer = setTimeout(() => {
+            if (!isListening && !isAssistantSpeaking && !processingRef.current) {
+                startListening();
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+
+        // Auto-greeting logic
         if (faceResult.hasFace && !faceDetected) {
             setFaceDetected(true);
-            // Show greeting when face first detected
             if (!faceDetectionInitialRef.current) {
                 setShowGreeting(true);
-                setIsListening(true);
                 faceDetectionInitialRef.current = true;
-                
-                // Speak the greeting with natural Thai voice
-                const greetingText = "สวัสดีค่ะ ฉันคือน้องปลาทู ผู้ช่วยท่องเที่ยวสมุทรสงคราม มีอะไรให้ช่วยไหมคะ";
-                if (onSpeak) {
-                    // Slight delay to feel more natural
-                    setTimeout(() => {
-                        onSpeak(greetingText);
-                    }, 500);
-                }
-                
-                // Auto-hide greeting message after 5 seconds
+
+                // Auto-start listening after a short delay for greeting
+                // Or user might want it immediately? 
+                // Let's do greeting then listen.
+                const greetingText = "สวัสดีค่ะ มีอะไรให้ช่วยไหมคะ";
+                speak(greetingText);
+
+                // Wait for greeting to likely finish (approx 2s) then start listening
+                // But better: useSpeechSynthesis could have onEnd callback?
+                // For simplicity, let's start listening immediately after greeting starts 
+                // (Web Speech sometimes allows simultaneous, but echoing is issue).
+                // "Speed Demon" style: Listen immediately, software echo cancellation is browser handled usually.
+                setTimeout(() => {
+                    startListening();
+                }, 1000);
+
                 greetingTimeoutRef.current = window.setTimeout(() => {
                     setShowGreeting(false);
                 }, 5000);
             }
         } else if (!faceResult.hasFace && faceDetected) {
-            setFaceDetected(false);
+            setFaceDetected(false); // Lost face, but don't reset everything
         }
-    }, [faceResult.hasFace, isOpen, faceDetected, onSpeak]);
+    }, [isOpen, faceResult.hasFace, faceDetected, speak, stopListening, cancelSpeech]);
 
-    // Audio visualization
+    // Handle user speech result
+    const handleUserSpeech = async (text: string) => {
+        if (!text.trim() || processingRef.current) return;
+
+        console.log("User said:", text);
+        setStatus('processing');
+        processingRef.current = true;
+        stopListening(); // Ensure we stop listening while processing
+
+        try {
+            await processVoiceQuery(text);
+        } catch (error) {
+            console.error("Error processing query:", error);
+            speak("ขอโทษค่ะ เกิดข้อผิดพลาด กรุณาลองใหม่นะคะ");
+            setStatus('idle');
+        } finally {
+            processingRef.current = false;
+        }
+    };
+
+    // Hard stop on close
+    const handleClose = () => {
+        cancelSpeech();
+        stopListening();
+        setAssistantMessage("");
+        setStatus('idle');
+        onClose();
+    };
+
+    // Process query with backend stream
+    const processVoiceQuery = async (query: string) => {
+        setAssistantMessage("");
+
+        try {
+            const response = await fetch('/api/messages/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: query,
+                    user_id: 'voice-user',
+                    request_id: crypto.randomUUID()
+                })
+            });
+
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let sentenceBuffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                buffer += chunk;
+
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        try {
+                            const data = JSON.parse(jsonStr);
+
+                            if (data.type === 'text' || data.type === 'chunk') {
+                                const textChunk = data.text || data.chunk || "";
+                                setAssistantMessage(prev => prev + textChunk);
+
+                                // Accumulate for TTS
+                                sentenceBuffer += textChunk;
+
+                                // OPTIMIZED Buffering Logic:
+                                // goal: Start fast (low latency) -> Stay smooth (smart buffering)
+
+                                let splitIndex = -1;
+
+                                // Rule 1: First phrase needs to be fast! 
+                                // If haven't spoken yet and buffer has reasonable length (>10 chars)
+                                // We check for *any* pause to start speaking immediately.
+                                if (!isAssistantSpeaking && sentenceBuffer.length > 10) {
+                                    // Look for any weak pause (comma, space) to start ASAP
+                                    const fastStartMatch = sentenceBuffer.match(/[, ]/);
+                                    if (fastStartMatch && fastStartMatch.index !== undefined && fastStartMatch.index > 5) {
+                                        splitIndex = fastStartMatch.index + 1;
+                                    }
+                                }
+
+                                // Rule 2: Normal flow (Strong punctuation)
+                                if (splitIndex === -1) {
+                                    const match = sentenceBuffer.match(/[.!?\n]+(?=\s|$)/);
+                                    if (match && match.index !== undefined) {
+                                        splitIndex = match.index + match[0].length;
+                                    }
+                                }
+
+                                // Rule 3: Long buffer safety (prevent silence on long phrases)
+                                if (splitIndex === -1 && sentenceBuffer.length > 60) {
+                                    const lastSpace = sentenceBuffer.lastIndexOf(' ');
+                                    if (lastSpace > 20) {
+                                        splitIndex = lastSpace + 1;
+                                    }
+                                }
+
+                                // Execute split
+                                if (splitIndex !== -1) {
+                                    const toSpeak = sentenceBuffer.slice(0, splitIndex);
+                                    const remaining = sentenceBuffer.slice(splitIndex);
+
+                                    if (toSpeak.trim()) {
+                                        if (!isAssistantSpeaking) setStatus('speaking');
+                                        speak(toSpeak);
+                                    }
+                                    sentenceBuffer = remaining;
+                                }
+
+                                // Emergency flush for huge chunks
+                                else if (sentenceBuffer.length > 150) {
+                                    if (!isAssistantSpeaking) setStatus('speaking');
+                                    speak(sentenceBuffer);
+                                    sentenceBuffer = "";
+                                }
+                            } else if (data.type === 'error') {
+                                console.error("Stream error:", data.message);
+                            }
+                        } catch (e) {
+                            console.warn("Error parsing stream line:", e);
+                        }
+                    }
+                }
+            }
+
+            // Flush remaining buffer at the end
+            if (sentenceBuffer.trim()) {
+                speak(sentenceBuffer);
+            }
+
+        } catch (err) {
+            console.error("Fetch error:", err);
+            speak("ขอโทษค่ะ เชื่อมต่อไม่ได้ในขณะนี้");
+        } finally {
+            // After processing, maybe wait for speech to end then go to idle?
+            // The useSpeechSynthesis hook 'isSpeaking' will handle the visual state
+            // We can rely on user manually clicking mic again, or auto-restart?
+            // For now, manual restart (Speed Demon user can tap quickly)
+            if (!isAssistantSpeaking) setStatus('idle');
+        }
+    };
+
+    // Sync status with hooks
     useEffect(() => {
-        if (!isOpen || !isListening) return;
+        if (isListening) setStatus('listening');
+        else if (isAssistantSpeaking) setStatus('speaking');
+        else if (!processingRef.current) setStatus('idle');
+    }, [isListening, isAssistantSpeaking]);
+
+    // Audio visualization effect
+    useEffect(() => {
+        if (!isOpen || status === 'idle') {
+            setPulseIntensity(5);
+            return;
+        }
 
         const interval = setInterval(() => {
-            setPulseIntensity(Math.random() * 100);
+            // Randomize intensity based on state
+            const base = status === 'listening' ? 50 : (status === 'speaking' ? 70 : 20);
+            const varAmount = status === 'processing' ? 10 : 40;
+            setPulseIntensity(base + Math.random() * varAmount);
         }, 100);
 
         return () => clearInterval(interval);
-    }, [isOpen, isListening]);
+    }, [isOpen, status]);
 
     if (!isOpen) return null;
 
@@ -75,222 +280,122 @@ const VoiceAIInterface = ({ isOpen, onClose, onSpeak }: VoiceAIInterfaceProps) =
 
     return (
         <div className="fixed inset-0 z-50 bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex flex-col overflow-hidden">
-            {/* Keep video element for face detection but hide the preview */}
-            <video
-                ref={videoRef}
-                className="hidden"
-                autoPlay
-                playsInline
-                muted
-            />
+            {/* Face Detection Video (Hidden) */}
+            <video ref={videoRef} className="hidden" autoPlay playsInline muted />
 
             {/* Close Button */}
             <div className="absolute top-6 right-6 z-10">
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onClose}
-                    className="text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12"
-                >
+                <Button variant="ghost" size="icon" onClick={handleClose} className="text-white/70 hover:text-white hover:bg-white/10 rounded-full w-12 h-12">
                     <X className="w-6 h-6" />
                 </Button>
             </div>
 
             {/* Header */}
-            <div className="pt-16 text-center">
+            <div className="pt-16 text-center animate-in slide-in-from-top duration-500">
                 <div className="flex items-center justify-center gap-2 mb-2">
                     <Sparkles className="w-5 h-5 text-cyan-400" />
-                    <span className="text-cyan-400 text-sm font-medium tracking-widest uppercase">
-                        NongPlatoo Voice AI
-                    </span>
+                    <span className="text-cyan-400 text-sm font-medium tracking-widest uppercase">NongPlatoo Voice AI</span>
                     <Sparkles className="w-5 h-5 text-cyan-400" />
                 </div>
-                <p className="text-white/60 text-sm">
-                    ระบบผู้ช่วยเสียงอัจฉริยะ
-                </p>
+                <p className="text-white/60 text-sm">ระบบผู้ช่วยเสียงอัจฉริยะ</p>
+                {!hasSTTSupport && <p className="text-red-400 text-xs mt-2">Browser doesn't support Speech Recognition</p>}
             </div>
 
             {/* Main Orb Container */}
-            <div className="flex-1 flex items-center justify-center relative">
-                {/* Background Particles */}
-                <div className="absolute inset-0 overflow-hidden">
+            <div className="flex-1 flex flex-col items-center justify-center relative">
+
+                {/* Live Transcript Display */}
+                {(transcript || assistantMessage) && (
+                    <div className="absolute top-1/4 w-full max-w-2xl px-8 text-center z-20 pointer-events-none">
+                        <p className={`text-2xl font-light transition-all duration-300 ${status === 'listening' ? 'text-white opacity-100 scale-105' : 'text-white/50 scale-100'}`}>
+                            {status === 'listening' ? transcript : assistantMessage || transcript}
+                        </p>
+                    </div>
+                )}
+
+                {/* Background Particles (Decor) */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none">
                     {[...Array(20)].map((_, i) => (
-                        <div
-                            key={i}
-                            className="absolute w-1 h-1 bg-cyan-400/30 rounded-full animate-pulse"
+                        <div key={i} className="absolute w-1 h-1 bg-cyan-400/30 rounded-full animate-pulse"
                             style={{
-                                left: `${Math.random() * 100}%`,
-                                top: `${Math.random() * 100}%`,
-                                animationDelay: `${Math.random() * 2}s`,
-                                animationDuration: `${2 + Math.random() * 2}s`,
+                                left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`,
+                                animationDelay: `${Math.random() * 2}s`, animationDuration: `${2 + Math.random() * 2}s`,
                             }}
                         />
                     ))}
                 </div>
 
-                {/* Outer Glow Rings */}
-                <div
-                    className="absolute rounded-full opacity-20 animate-ping"
-                    style={{
-                        width: orbSize + 100,
-                        height: orbSize + 100,
-                        background: `radial-gradient(circle, rgba(34, 211, 238, 0.3) 0%, transparent 70%)`,
-                        animationDuration: '2s',
-                    }}
-                />
-                <div
-                    className="absolute rounded-full opacity-30"
-                    style={{
-                        width: orbSize + 60,
-                        height: orbSize + 60,
-                        background: `radial-gradient(circle, rgba(34, 211, 238, 0.2) 0%, transparent 70%)`,
-                        animation: 'pulse 1.5s ease-in-out infinite',
-                    }}
-                />
-
-                {/* Inner Rotating Ring */}
-                <div
-                    className="absolute rounded-full border border-cyan-400/30"
-                    style={{
-                        width: orbSize + 40,
-                        height: orbSize + 40,
-                        animation: 'spin 8s linear infinite',
-                    }}
-                >
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-cyan-400 rounded-full" />
-                    <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-cyan-400 rounded-full" />
-                </div>
-
-                {/* Secondary Rotating Ring */}
-                <div
-                    className="absolute rounded-full border border-blue-400/20"
-                    style={{
-                        width: orbSize + 20,
-                        height: orbSize + 20,
-                        animation: 'spin 6s linear infinite reverse',
-                    }}
-                >
-                    <div className="absolute top-1/2 -left-1 -translate-y-1/2 w-2 h-2 bg-blue-400 rounded-full" />
-                    <div className="absolute top-1/2 -right-1 -translate-y-1/2 w-2 h-2 bg-blue-400 rounded-full" />
-                </div>
-
-                {/* Main Orb */}
-                <div
-                    className="relative rounded-full flex items-center justify-center transition-all duration-100"
-                    style={{
-                        width: orbSize,
-                        height: orbSize,
-                        background: `
-              radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.4) 0%, transparent 50%),
-              radial-gradient(circle at 70% 70%, rgba(59, 130, 246, 0.3) 0%, transparent 50%),
-              radial-gradient(circle, rgba(30, 58, 138, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)
-            `,
-                        boxShadow: `
-              0 0 ${glowIntensity}px rgba(34, 211, 238, 0.5),
-              0 0 ${glowIntensity * 2}px rgba(34, 211, 238, 0.3),
-              0 0 ${glowIntensity * 3}px rgba(34, 211, 238, 0.1),
-              inset 0 0 60px rgba(34, 211, 238, 0.1)
-            `,
-                    }}
-                >
-                    {/* Inner Core */}
-                    <div
-                        className="absolute rounded-full"
-                        style={{
-                            width: orbSize * 0.7,
-                            height: orbSize * 0.7,
-                            background: `radial-gradient(circle, rgba(34, 211, 238, 0.15) 0%, transparent 70%)`,
-                            animation: 'pulse 2s ease-in-out infinite',
-                        }}
+                {/* Orb Visuals */}
+                <div className="relative">
+                    {/* Outer Glows */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-20"
+                        style={{ width: orbSize + 100, height: orbSize + 100, background: `radial-gradient(circle, ${status === 'listening' ? 'rgba(255, 100, 100, 0.3)' : 'rgba(34, 211, 238, 0.3)'} 0%, transparent 70%)` }}
                     />
 
-                    {/* Voice Wave Bars */}
-                    <div className="flex items-center justify-center gap-1">
-                        {[...Array(7)].map((_, i) => {
-                            const height = isListening
-                                ? 20 + Math.sin((Date.now() / 200) + i) * 30 + (pulseIntensity * 0.3)
-                                : 10;
-                            return (
-                                <div
-                                    key={i}
-                                    className="w-1.5 bg-gradient-to-t from-cyan-400 to-blue-400 rounded-full transition-all duration-75"
-                                    style={{
-                                        height: `${height}px`,
-                                        opacity: 0.6 + (pulseIntensity / 200),
-                                    }}
-                                />
-                            );
-                        })}
-                    </div>
-                </div>
+                    {/* Rotating Rings */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-400/30 w-[300px] h-[300px] animate-[spin_8s_linear_infinite]" />
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-blue-400/20 w-[260px] h-[260px] animate-[spin_6s_linear_infinite_reverse]" />
 
-                {/* Floating Sparkles around orb */}
-                <div
-                    className="absolute"
-                    style={{
-                        width: orbSize + 150,
-                        height: orbSize + 150,
-                        animation: 'spin 20s linear infinite',
-                    }}
-                >
-                    {[...Array(6)].map((_, i) => (
-                        <div
-                            key={i}
-                            className="absolute w-2 h-2 bg-cyan-400/50 rounded-full animate-pulse"
-                            style={{
-                                top: `${50 + 45 * Math.cos((i * 60 * Math.PI) / 180)}%`,
-                                left: `${50 + 45 * Math.sin((i * 60 * Math.PI) / 180)}%`,
-                                transform: 'translate(-50%, -50%)',
-                                animationDelay: `${i * 0.2}s`,
-                            }}
-                        />
-                    ))}
+                    {/* Core Orb */}
+                    <div className="relative rounded-full flex items-center justify-center transition-all duration-300 transform"
+                        style={{
+                            width: orbSize, height: orbSize,
+                            background: status === 'listening'
+                                ? `radial-gradient(circle, rgba(220, 38, 38, 0.8) 0%, rgba(69, 10, 10, 0.95) 100%)` // Red when listening
+                                : `radial-gradient(circle, rgba(30, 58, 138, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)`, // Blue otherwise
+                            boxShadow: `0 0 ${glowIntensity}px ${status === 'listening' ? 'rgba(220, 38, 38, 0.5)' : 'rgba(34, 211, 238, 0.5)'}`
+                        }}
+                    >
+                        {/* Inner Pulse */}
+                        <div className="absolute rounded-full w-[70%] h-[70%] bg-white/10 animate-pulse" />
+
+                        {/* Icon */}
+                        {status === 'listening' ? (
+                            <Mic className="w-16 h-16 text-white animate-pulse" />
+                        ) : status === 'speaking' ? (
+                            <Volume2 className="w-16 h-16 text-cyan-400 animate-bounce" />
+                        ) : (
+                            <MicOff className="w-16 h-16 text-white/50" />
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* Status Text */}
-            <div className="pb-16 text-center">
-                <div className="mb-4">
-                    {/* AI Greeting Message */}
-                    {showGreeting && (
-                        <div className="mb-4 animate-in fade-in duration-500">
-                            <p className="text-cyan-300 text-lg font-medium mb-2">
-                                สวัสดีค่ะ! 👋
-                            </p>
-                            <p className="text-white/70 text-sm">
-                                ฉันคือน้องปลาทู ผู้ช่วยท่องเที่ยวสมุทรสงคราม
-                            </p>
-                            <p className="text-white/60 text-xs mt-1">
-                                มีอะไรให้ช่วยไหมคะ
-                            </p>
-                        </div>
-                    )}
-
-                    <p className={`text-lg font-medium ${isListening ? 'text-cyan-400' : 'text-white/60'}`}>
-                        {isListening ? 'กำลังฟังอยู่...' : 'กดเพื่อเริ่มพูด'}
-                    </p>
-                    <p className="text-white/40 text-sm mt-2">
-                        พูดคำถามของคุณเกี่ยวกับสถานที่ท่องเที่ยวสมุทรสงคราม
-                    </p>
+            {/* Controls */}
+            <div className="pb-16 text-center animate-in slide-in-from-bottom duration-500">
+                <div className="mb-8 h-8">
+                    {status === 'listening' && <span className="text-cyan-400 animate-pulse">Listening...</span>}
+                    {status === 'processing' && <span className="text-yellow-400 animate-pulse">Thinking...</span>}
+                    {status === 'speaking' && <span className="text-green-400 animate-pulse">Speaking...</span>}
                 </div>
 
-                {/* Control Buttons */}
                 <div className="flex justify-center gap-4">
-                    <Button
-                        variant="outline"
-                        size="lg"
-                        onClick={() => setIsListening(!isListening)}
-                        className={`
-              rounded-full px-8 border-2 transition-all duration-300
-              ${isListening
-                                ? 'border-red-400/50 text-red-400 hover:bg-red-400/10 bg-red-400/5'
-                                : 'border-cyan-400/50 text-cyan-400 hover:bg-cyan-400/10 bg-cyan-400/5'
-                            }
-            `}
-                    >
-                        {isListening ? 'หยุดฟัง' : 'เริ่มพูด'}
-                    </Button>
+                    {/* Simplified Control Button */}
+                    <div className="flex gap-4">
+                        {!isListening && status !== 'processing' && status !== 'speaking' && (
+                            <Button
+                                variant="outline"
+                                size="lg"
+                                onClick={startListening}
+                                className="rounded-full px-8 py-6 text-lg border-cyan-500 text-cyan-500 bg-cyan-500/10 hover:bg-cyan-500/20 hover:scale-105 transition-all duration-300"
+                            >
+                                <Mic className="w-5 h-5 mr-2" />
+                                พูดอีกครั้ง
+                            </Button>
+                        )}
+
+                        <Button
+                            variant="outline"
+                            size="lg"
+                            onClick={handleClose}
+                            className="rounded-full px-8 py-6 text-lg border-white/20 text-white/70 hover:bg-white/10 hover:text-white hover:border-white/50 transition-all duration-300"
+                        >
+                            <X className="w-5 h-5 mr-2" />
+                            ปิด
+                        </Button>
+                    </div>
                 </div>
+                <p className="text-white/30 text-xs mt-4">Powered by Web Speech API</p>
             </div>
         </div>
     );
