@@ -37,3 +37,6 @@ google-cloud-texttospeech>=2.14.0  # Premium option (requires API key)
 numpy>=1.24.0
 scikit-learn>=1.3.0
 sentence-transformers>=2.2.2
+
+# pgvector - Vector database support for semantic search
+pgvector>=0.2.4

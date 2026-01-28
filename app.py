@@ -62,7 +62,7 @@ try:
 except ImportError as import_error:
     logger.warning(f"Route handlers not available: {import_error}")
     ROUTE_HANDLERS_AVAILABLE = False
-    DEFAULT_CHAT_TIMEOUT_SECONDS = 60
+    DEFAULT_CHAT_TIMEOUT_SECONDS = 180  # 3 minutes
 
 # Default timeout for GPT calls to avoid worker hangs
 CHAT_TIMEOUT_SECONDS = int(os.getenv("CHAT_TIMEOUT_SECONDS", str(DEFAULT_CHAT_TIMEOUT_SECONDS)))
@@ -101,7 +101,31 @@ STATIC_ROOTS = [
 from backend.visit_counter import get_counts, increment_visit, normalize_path
 
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS with security restrictions
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000").split(",")],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "max_age": 3600
+    }
+}, supports_credentials=True)
+
+# Add security headers
+@app.after_request
+def set_security_headers(response):
+    """Add security headers to all responses."""
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # Only add HSTS in production
+    if os.getenv("FLASK_ENV") == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 # Initialize extensions (DB, JWT, Migration) and register API blueprints
 try:
@@ -608,15 +632,17 @@ def post_message_stream():
                     elapsed = time.time() - _MATCH_CACHE[cache_key]['timestamp']
                     if elapsed < _CACHE_TTL:
                         matched_data = _MATCH_CACHE[cache_key]['data']
+                        query_type = _MATCH_CACHE[cache_key].get('query_type', intent_classification['intent_type'])
                         logger.debug(f"[iOS] Match data cache HIT for {request_id}")
                     else:
                         del _MATCH_CACHE[cache_key]
-                        matched_data = chatbot._match_travel_data(
+                        matched_data, query_type = chatbot._match_travel_data(
                             user_message,
                             keywords=intent_classification.get('keywords'),
                         )
                         _MATCH_CACHE[cache_key] = {
                             'data': matched_data,
+                            'query_type': query_type,
                             'timestamp': time.time()
                         }
                 else:
@@ -649,24 +675,23 @@ def post_message_stream():
                     # Use location-aware results if found, otherwise fall back to standard search
                     if location_aware_results:
                         matched_data = location_aware_results
+                        query_type = "specific" if chatbot._detect_specific_place_query(user_message, matched_data) else "suggestions"
                     else:
-                        matched_data = chatbot._match_travel_data(
+                        matched_data, query_type = chatbot._match_travel_data(
                             user_message,
                             keywords=intent_classification.get('keywords'),
                         )
                     
                     _MATCH_CACHE[cache_key] = {
                         'data': matched_data,
+                        'query_type': query_type,
                         'timestamp': time.time()
                     }
                 
                 # Send structured data
                 logger.info(f"[Stream] matched_data count: {len(matched_data) if matched_data else 0}")
                 if matched_data:
-                    logger.info(f"[Stream] First match: {matched_data[0].get('name', 'unknown')} - images: {len(matched_data[0].get('images', []))}")
-                    yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:3]}, ensure_ascii=False) + "\n\n"
-                else:
-                    logger.warning(f"[Stream] No matched_data found for query: {user_message[:50]}")
+                    yield "data: " + json.dumps({'type': 'structured_data', 'data': matched_data[:6]}, ensure_ascii=False) + "\n\n"
                 
                 # Store full assistant response
                 assistant_response = ""
@@ -680,12 +705,13 @@ def post_message_stream():
                         user_query=intent_classification['clean_question'],
                         context_data=matched_data,
                         data_type='travel',
-                        intent=intent_classification['intent_type'],
-                        intent_type=intent_classification['intent_type'],
+                        intent=query_type,
+                        intent_type=query_type,
                         data_status={
                             'success': bool(matched_data),
                             'data_available': bool(matched_data),
                             'source': 'database',
+                            'classified_intent_type': intent_classification['intent_type'],
                         },
                         conversation_history=conversation_history
                     ):
@@ -1427,9 +1453,7 @@ if __name__ == '__main__':
         logger.error(f"[ERROR] Database initialization failed: {e}", exc_info=True)
         print(f"[WARN] Database initialization failed: {e}")
     
-    # Preload semantic model to avoid first-request timeout
-    # This prevents the 504 error that occurs when the model loads during the first chat request
-    # Wrapped in a thread with timeout to prevent blocking server startup
+    # Preload semantic model to avoid first-request timeout (~29s delay)
     def preload_semantic_model():
         try:
             logger.info("Preloading semantic model...")
@@ -1445,14 +1469,27 @@ if __name__ == '__main__':
         import threading
         preload_thread = threading.Thread(target=preload_semantic_model, daemon=True)
         preload_thread.start()
-        # Give it max 60 seconds to load, but don't block server startup
-        preload_thread.join(timeout=60)
-        if preload_thread.is_alive():
-            logger.warning("Semantic model preloading is taking too long, continuing without it")
+        # Don't wait - let it load in background while server starts
     except Exception as e:
         logger.warning(f"Could not start preload thread: {e}")
     
     logger.info("[INFO] Starting Flask server on 0.0.0.0:8000...")
     print("[INFO] Running app...")
-    app.run(host="0.0.0.0", port=8000)
+    print("[DEBUG] About to call app.run()...")
+    import sys
+    sys.stdout.flush()
+    try:
+        print("[DEBUG] Calling app.run() now...")
+        sys.stdout.flush()
+        app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False, threaded=True)
+        print("[DEBUG] app.run() returned")
+    except KeyboardInterrupt:
+        print("\n[INFO] Server stopped by user")
+    except Exception as e:
+        logger.error(f"Flask server error: {e}", exc_info=True)
+        print(f"[ERROR] Flask crashed: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print("[DEBUG] Finally block reached")
 

@@ -57,6 +57,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    Vector = None  # type: ignore
+
 from .constants import DEFAULT_SEARCH_LIMIT, MAX_ATTRACTIONS_LIMIT
 
 if load_dotenv:
@@ -80,7 +85,6 @@ class Place(Base):
 
     # Actual columns in the database (verified via check_images.py)
     id = Column(Integer, primary_key=True)
-    # Note: place_id column removed - doesn't exist in actual database
     name = Column(String, nullable=False)
     category = Column(String)
     description = Column(Text)
@@ -89,8 +93,10 @@ class Place(Base):
     longitude = Column(Numeric(9, 6))
     opening_hours = Column(Text)
     price_range = Column(Text)
-    image_url = Column(Text)  # Note: singular to match actual DB schema
+    image_url = Column(Text)
     attraction_type = Column(String)
+    # Vector column for semantic search (pgvector) - matches database column name
+    description_embedding = Column(Vector(384), nullable=True) if Vector else Column(Text, nullable=True)
 
     def to_dict(self) -> Dict[str, object]:
         """Convert to dict with chatbot-compatible field names and defaults."""
@@ -109,7 +115,7 @@ class Place(Base):
                 type_candidates.append(val)
         type_value = type_candidates
 
-        # Normalize image_urls from various formats (JSON list, comma/semicolon/pipe/newline separated)
+        # Normalize image_url from various formats (JSON list, comma/semicolon/pipe/newline separated)
         def _parse_images(raw: Any) -> list[str]:
             urls: list[str] = []
             if isinstance(raw, (list, tuple, set)):
@@ -149,7 +155,6 @@ class Place(Base):
 
         return {
             "id": str(self.id),
-            # place_id removed - column doesn't exist in database
             "name": self.name,
             "place_name": self.name,  # Use name as place_name
             "description": self.description,
@@ -621,27 +626,28 @@ def search_main_attractions(keyword: str, limit: int = DEFAULT_SEARCH_LIMIT) -> 
 
 def get_attractions_by_type(attraction_type: str, limit: int = MAX_ATTRACTIONS_LIMIT) -> List[Dict[str, object]]:
     """
-    Retrieve ALL places with a specific attraction_type.
+    Retrieve ALL places with a specific category.
     
     Useful for browsing by category (e.g., "show me all markets" or "list all restaurants").
     Database-level filtering only - no AI reclassification.
+    Searches only the category column.
     
     Args:
-        attraction_type: The classification to filter by 
-                        ('main_attraction', 'secondary_attraction', 'market', 'activity', 
-                         'restaurant', 'cafe', etc.)
+        attraction_type: The category keyword to filter by 
+                        ('cafe', 'restaurant', 'market', 'activity', 'temple', etc.)
         limit: Maximum number of results
     
     Returns:
-        List of all places with the specified attraction_type
+        List of all places with matching category
     """
     try:
         init_db()
         session_factory = get_session_factory()
         
+        # Search only category column with case-insensitive matching
         places_stmt = (
             select(Place)
-            .where(Place.attraction_type == attraction_type)
+            .where(Place.category.ilike(f'%{attraction_type}%'))
             .order_by(Place.name.asc())
             .limit(limit)
         )
@@ -809,3 +815,202 @@ def search_any_table(keyword: str, limit_per_table: int = 10) -> list[dict[str, 
                 results.append(row_dict)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Semantic Search with pgvector
+# ---------------------------------------------------------------------------
+
+def search_places_semantic(
+    query: str, 
+    limit: int = DEFAULT_SEARCH_LIMIT
+) -> List[Dict[str, object]]:
+    """
+    Semantic search using pgvector similarity (cosine distance).
+    
+    Requires:
+    1. pgvector extension installed on PostgreSQL
+    2. description_embedding column with generated embeddings
+    3. sentence-transformers model for query embedding
+    
+    Args:
+        query: Natural language search query (e.g., "romantic dinner spots")
+        limit: Maximum number of results to return
+    
+    Returns:
+        List of places sorted by semantic similarity, each with:
+        - All standard place fields
+        - similarity_score: cosine similarity (0-1, higher is better)
+    
+    Example:
+        results = search_places_semantic("floating market", limit=5)
+        for place in results:
+            print(f"{place['name']}: {place['similarity_score']:.2f}")
+    """
+    if not Vector:
+        print("[WARN] pgvector not installed - semantic search unavailable")
+        return []
+    
+    try:
+        from sentence_transformers import SentenceTransformer
+        
+        # Load model
+        model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        
+        # Generate embedding for the query
+        query_embedding = model.encode(query)
+        
+        init_db()
+        session_factory = get_session_factory()
+        
+        with session_factory() as session:
+            # Find places with non-null embeddings
+            places_stmt = (
+                select(
+                    Place,
+                    # Cosine similarity: 1 - (distance / 2) for normalized vectors
+                    # But pgvector returns cosine similarity directly with <=> operator
+                    (Place.description_embedding.op('<=>')(query_embedding)).label('similarity')
+                )
+                .where(Place.description_embedding.isnot(None))
+                .order_by(Place.description_embedding.op('<=>')(query_embedding))
+                .limit(limit)
+            )
+            
+            results: List[Dict[str, object]] = []
+            for place, similarity in session.execute(places_stmt):
+                place_dict = place.to_dict()
+                # Normalize similarity to 0-1 range where 1 is identical
+                place_dict['similarity_score'] = 1 - float(similarity)
+                results.append(place_dict)
+            
+            print(f"[SEMANTIC SEARCH] Found {len(results)} results for '{query}'")
+            return results
+    
+    except ImportError:
+        print("[WARN] sentence-transformers not installed - semantic search unavailable")
+        return []
+    except Exception as e:
+        print(f"[WARN] Semantic search failed: {e}")
+        return []
+
+
+def search_places_hybrid(
+    query: str,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+    keyword_weight: float = 0.3
+) -> List[Dict[str, object]]:
+    """
+    Hybrid search combining semantic search (70%) and keyword search (30%).
+    
+    This approach gives you the best of both worlds:
+    - Semantic search finds conceptually similar places even with different keywords
+    - Keyword search ensures exact matches are prioritized
+    
+    Args:
+        query: Search query
+        limit: Maximum results
+        keyword_weight: How much to weight keyword search (0-1)
+    
+    Returns:
+        List of places with combined_score (0-1)
+    
+    Example:
+        results = search_places_hybrid("floating market", limit=10)
+    """
+    # Optimized: Fetch only 'limit' results instead of 'limit*2' to reduce query time
+    semantic_results = search_places_semantic(query, limit=limit)
+    keyword_results = search_places(query, limit=limit)
+    
+    # Create a scoring dict
+    scores: Dict[int, Dict[str, object]] = {}
+    
+    # Add semantic scores
+    for place in semantic_results:
+        place_id = int(place['id'])
+        scores[place_id] = place.copy()
+        scores[place_id]['semantic_score'] = place.get('similarity_score', 0)
+        scores[place_id]['keyword_score'] = 0
+    
+    # Add keyword scores
+    for place in keyword_results:
+        place_id = int(place['id'])
+        if place_id not in scores:
+            scores[place_id] = place.copy()
+            scores[place_id]['semantic_score'] = 0
+        scores[place_id]['keyword_score'] = 1.0  # Exact match
+    
+    # Calculate combined score
+    for place_id in scores:
+        scores[place_id]['combined_score'] = (
+            scores[place_id].get('semantic_score', 0) * (1 - keyword_weight) +
+            scores[place_id].get('keyword_score', 0) * keyword_weight
+        )
+    
+    # Sort by combined score and return top limit
+    sorted_results = sorted(
+        scores.values(),
+        key=lambda x: x.get('combined_score', 0),
+        reverse=True
+    )[:limit]
+    
+    return sorted_results
+
+
+def get_similar_places(
+    place_id: int,
+    limit: int = 5
+) -> List[Dict[str, object]]:
+    """
+    Find places similar to a given place using vector similarity.
+    
+    Great for "Related places" recommendations on place detail pages.
+    
+    Args:
+        place_id: ID of the reference place
+        limit: Number of similar places to return
+    
+    Returns:
+        List of similar places sorted by similarity
+    """
+    if not Vector:
+        print("[WARN] pgvector not available for similarity search")
+        return []
+    
+    try:
+        init_db()
+        session_factory = get_session_factory()
+        
+        with session_factory() as session:
+            # Get the reference place
+            reference_place = session.query(Place).filter(Place.id == place_id).first()
+            
+            if not reference_place or reference_place.description_embedding is None:
+                print(f"[INFO] Place {place_id} not found or has no embedding")
+                return []
+            
+            # Find similar places
+            places_stmt = (
+                select(
+                    Place,
+                    (Place.description_embedding.op('<=>')(reference_place.description_embedding)).label('distance')
+                )
+                .where(
+                    Place.id != place_id,
+                    Place.description_embedding.isnot(None)
+                )
+                .order_by(Place.description_embedding.op('<=>')(reference_place.description_embedding))
+                .limit(limit)
+            )
+            
+            results: List[Dict[str, object]] = []
+            for place, distance in session.execute(places_stmt):
+                place_dict = place.to_dict()
+                place_dict['similarity_score'] = 1 - float(distance)
+                results.append(place_dict)
+            
+            return results
+    
+    except Exception as e:
+        print(f"[WARN] Similar places search failed: {e}")
+        return []
