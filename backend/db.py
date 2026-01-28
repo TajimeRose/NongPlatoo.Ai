@@ -78,9 +78,9 @@ class Place(Base):
 
     __tablename__ = "places"
 
-    # Actual columns in the database
+    # Actual columns in the database (verified via check_images.py)
     id = Column(Integer, primary_key=True)
-    place_id = Column(String, nullable=True)  # Made nullable - some DBs may not have this column
+    # Note: place_id column removed - doesn't exist in actual database
     name = Column(String, nullable=False)
     category = Column(String)
     description = Column(Text)
@@ -89,7 +89,7 @@ class Place(Base):
     longitude = Column(Numeric(9, 6))
     opening_hours = Column(Text)
     price_range = Column(Text)
-    image_urls = Column(Text)
+    image_url = Column(Text)  # Note: singular to match actual DB schema
     attraction_type = Column(String)
 
     def to_dict(self) -> Dict[str, object]:
@@ -139,7 +139,7 @@ class Place(Base):
                     deduped.append(u)
             return deduped
 
-        images = _parse_images(self.image_urls)
+        images = _parse_images(self.image_url)
 
         def _to_float(value: Any) -> float | None:
             try:
@@ -149,7 +149,7 @@ class Place(Base):
 
         return {
             "id": str(self.id),
-            "place_id": self.place_id,
+            # place_id removed - column doesn't exist in database
             "name": self.name,
             "place_name": self.name,  # Use name as place_name
             "description": self.description,
@@ -382,22 +382,21 @@ def save_google_place_to_db(place_data: Dict[str, Any]) -> bool:
         session_factory = get_session_factory()
         
         with session_factory() as session:
-            # Check if already exists by place_id
-            place_id = place_data.get('place_id', '')
-            if not place_id:
+            # Check if already exists by name (place_id column doesn't exist)
+            place_name = place_data.get('name', '')
+            if not place_name:
                 return False
                 
             existing = session.query(Place).filter(
-                Place.place_id == place_id
+                Place.name == place_name
             ).first()
             
             if existing:
                 return True  # Already in DB
             
-            # Create new Place entry
+            # Create new Place entry (without place_id - column doesn't exist)
             new_place = Place(
-                place_id=place_id,
-                name=place_data.get('name', 'Unknown'),
+                name=place_name,
                 category=place_data.get('category', 'From Google Maps'),
                 description=place_data.get('description', ''),
                 address=place_data.get('address', ''),
@@ -407,7 +406,7 @@ def save_google_place_to_db(place_data: Dict[str, Any]) -> bool:
             )
             session.add(new_place)
             session.commit()
-            print(f"[DB] Saved Google place '{place_data.get('name')}' to database")
+            print(f"[DB] Saved Google place '{place_name}' to database")
             return True
             
     except Exception as e:
