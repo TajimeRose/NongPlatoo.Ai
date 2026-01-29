@@ -7,6 +7,7 @@ import heroImage from "@/assets/ปกเว็บ.jpg";
 import templeImage from "@/assets/category-temple.jpg";
 import homestayImage from "@/assets/category-homestay.jpg";
 import AgencyLogos from "@/components/AgencyLogos";
+import NewsBanner from "@/components/NewsBanner";
 
 const Index = () => {
   const categories = [
@@ -60,6 +61,15 @@ const Index = () => {
             <p className="text-xl md:text-2xl text-primary-foreground/90 mb-4 font-display">
 
             </p>
+
+            {/* News Banner - Absolute Left */}
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 hidden md:block z-20">
+              <NewsBanner />
+            </div>
+            {/* Mobile View: Show below title? Or float bottom left fixed? Let's stick to Desktop mostly as requested "Left side" usually implies desktop layout. For mobile maybe hidden or different pos. User said "Left side of home page". */}
+            <div className="md:hidden absolute top-24 left-4 z-20">
+              <NewsBanner />
+            </div>
             <p className="text-lg text-primary-foreground/80 mb-8 max-w-xl mx-auto">
               “Nong Pla Too" Intelligent Travel Publicity with AI
             </p>

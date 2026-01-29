@@ -27,7 +27,7 @@ THAI_CHAR_MIN_CODE = "\u0e00"
 THAI_CHAR_MAX_CODE = "\u0e7f"
 
 # API and Service Configuration
-DEFAULT_OPENAI_MODEL = "gpt-4o"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.8
 DEFAULT_MAX_TOKENS = 600  # Higher for streaming - generates richer content progressively
 DEFAULT_TOP_P = 1.0

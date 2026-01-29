@@ -492,6 +492,7 @@ def get_db_url() -> str:
 
 _ENGINE: Engine | None = None
 _SESSION_FACTORY: sessionmaker | None = None
+_SENTENCE_MODEL = None
 
 
 def get_engine() -> Engine:
@@ -851,11 +852,14 @@ def search_places_semantic(
         print("[WARN] pgvector not installed - semantic search unavailable")
         return []
     
+    # Global model cache to prevent reloading on every request
+    global _SENTENCE_MODEL
     try:
         from sentence_transformers import SentenceTransformer
-        
-        # Load model
-        model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        if _SENTENCE_MODEL is None:
+            print("[INFO] Loading SentenceTransformer model (first time)...")
+            _SENTENCE_MODEL = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        model = _SENTENCE_MODEL
         
         # Generate embedding for the query
         query_embedding = model.encode(query)
@@ -865,24 +869,54 @@ def search_places_semantic(
         
         with session_factory() as session:
             # Find places with non-null embeddings
+            # Cast distance to Float to prevent pgvector type processor from treating it as Vector
+            from sqlalchemy import Float
+            distance_expr = cast(Place.description_embedding.op('<=>')(query_embedding), Float)
+            
             places_stmt = (
                 select(
                     Place,
-                    # Cosine similarity: 1 - (distance / 2) for normalized vectors
-                    # But pgvector returns cosine similarity directly with <=> operator
-                    (Place.description_embedding.op('<=>')(query_embedding)).label('similarity')
+                    distance_expr.label('similarity')
                 )
                 .where(Place.description_embedding.isnot(None))
-                .order_by(Place.description_embedding.op('<=>')(query_embedding))
+                .order_by(distance_expr)
                 .limit(limit)
             )
             
             results: List[Dict[str, object]] = []
-            for place, similarity in session.execute(places_stmt):
-                place_dict = place.to_dict()
-                # Normalize similarity to 0-1 range where 1 is identical
-                place_dict['similarity_score'] = 1 - float(similarity)
-                results.append(place_dict)
+            # Execute and fetch all results
+            rows = session.execute(places_stmt).all()
+            
+            # Debug: Print first row structure
+            if rows:
+                print(f"[DEBUG] First row type: {type(rows[0])}, len: {len(rows[0]) if hasattr(rows[0], '__len__') else 'N/A'}")
+            
+            for row in rows:
+                try:
+                    # Handle different row structures
+                    if hasattr(row, 'Place'):
+                        # Named tuple style
+                        place = row.Place
+                        similarity = row.similarity
+                    elif hasattr(row, '__getitem__') and not isinstance(row, (int, float)):
+                        # Tuple/list style
+                        place = row[0]
+                        similarity = row[1]
+                    else:
+                        print(f"[DEBUG] Unexpected row type: {type(row)}, value: {row}")
+                        continue
+                    
+                    place_dict = place.to_dict()
+                    # Normalize similarity
+                    try:
+                        sim_val = float(similarity)
+                        place_dict['similarity_score'] = max(0.0, 1.0 - sim_val) 
+                    except (ValueError, TypeError):
+                        place_dict['similarity_score'] = 0.5
+                    
+                    results.append(place_dict)
+                except Exception as row_err:
+                    print(f"[DEBUG] Row processing error: {row_err}, row type: {type(row)}")
             
             print(f"[SEMANTIC SEARCH] Found {len(results)} results for '{query}'")
             return results
@@ -891,6 +925,8 @@ def search_places_semantic(
         print("[WARN] sentence-transformers not installed - semantic search unavailable")
         return []
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"[WARN] Semantic search failed: {e}")
         return []
 
@@ -989,17 +1025,20 @@ def get_similar_places(
                 print(f"[INFO] Place {place_id} not found or has no embedding")
                 return []
             
-            # Find similar places
+            # Find similar places - cast distance to Float
+            from sqlalchemy import Float
+            distance_expr = cast(Place.description_embedding.op('<=>')(reference_place.description_embedding), Float)
+            
             places_stmt = (
                 select(
                     Place,
-                    (Place.description_embedding.op('<=>')(reference_place.description_embedding)).label('distance')
+                    distance_expr.label('distance')
                 )
                 .where(
                     Place.id != place_id,
                     Place.description_embedding.isnot(None)
                 )
-                .order_by(Place.description_embedding.op('<=>')(reference_place.description_embedding))
+                .order_by(distance_expr)
                 .limit(limit)
             )
             

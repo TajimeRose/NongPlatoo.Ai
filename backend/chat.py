@@ -1139,23 +1139,48 @@ class TravelChatbot:
                     # Use SQL-level filtering: ONLY main_attraction type
                     # The AI should not try to reclassify non-main attractions
                     results: List[Dict[str, Any]] = search_main_attractions(query, limit=limit_value)
+                    
+                    # Fallback: If we found very few main attractions (e.g. < 5), 
+                    # supplement with hybrid search to ensure user gets enough options (5-6 as requested)
+                    if len(results) < 5:
+                        logger.info(f"[MAIN ATTRACTION FALLBACK] Found only {len(results)} main attractions, supplementing with hybrid search")
+                        supplementary = search_places_hybrid(query, limit=limit_value)
+                        
+                        # Add unique items from supplementary results
+                        existing_ids = {p.get('id') for p in results}
+                        count_added = 0
+                        for p in supplementary:
+                            if p.get('id') not in existing_ids:
+                                results.append(p)
+                                existing_ids.add(p.get('id'))
+                                count_added += 1
+                                if len(results) >= limit_value:
+                                    break
                 elif requested_category:
                     # Filter by specific category using the category column only
                     logger.info(f"[CATEGORY FILTER] Searching for {requested_category} only")
                     results: List[Dict[str, Any]] = get_attractions_by_type(requested_category, limit=limit_value)
                 
-                    # If no results found, fall back to hybrid search
-                    if not results:
-                        logger.info(f"[CATEGORY FALLBACK] No places with category '{requested_category}', using hybrid search")
-                        results = search_places_hybrid(query, limit=limit_value)
+                    # If limited results found, supplement with hybrid search
+                    if len(results) < 5:
+                        logger.info(f"[CATEGORY FALLBACK] Found only {len(results)} places with category '{requested_category}', supplementing with hybrid search")
+                        supplementary = search_places_hybrid(query, limit=limit_value)
+                        
+                        existing_ids = {p.get('id') for p in results}
+                        for p in supplementary:
+                            if p.get('id') not in existing_ids:
+                                results.append(p)
+                                existing_ids.add(p.get('id'))
+                                if len(results) >= limit_value:
+                                    break
                     elif results:
                         # Filter the results to only those matching the search query
                         # (in case some don't match the semantic/keyword search)
-                        from .semantic_search import get_embeddings as get_search_embeddings
+                        from .semantic_search import get_embeddings as get_search_embeddings, get_model
                         try:
-                            from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
                             import numpy as np
-                            model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                            # Use cached model (fast!) instead of reloading (slow!)
+                            model = get_model()
                             query_embedding = model.encode(query)
                             # Re-rank results by semantic similarity to query
                             from sklearn.metrics.pairwise import cosine_similarity
