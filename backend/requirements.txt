@@ -36,10 +36,8 @@ edge-tts>=6.1.9  # High quality free Microsoft TTS
 nest_asyncio>=1.5.8  # Fix for asyncio loops in Flask/Gunicorn
 
 # Voice Activity Detection
-# NOTE: webrtcvad requires C++ build tools on Windows (optional, uses energy detection fallback if unavailable)
-# To install on Windows: Install "Microsoft C++ Build Tools" from https://visualstudio.microsoft.com/visual-cpp-build-tools/
-# Or skip installation - VAD will work fine with energy-based fallback detection
-webrtcvad>=2.0.10; python_version >= '3.6'  # Optional for Windows users without C++ build tools
+# NOTE: webrtcvad requires C++ build tools (removed for Docker slim compatibility)
+# VAD will work fine with energy-based fallback detection
 
 # Semantic Search (optional but enables FlexibleMatcher)
 numpy>=1.24.0
