@@ -184,24 +184,48 @@ const Chat = () => {
 
   const playTextToSpeech = async (text: string) => {
     try {
-      // Stop current audio if playing
+      // DEVICE COMPATIBILITY: Stop current audio if playing
       if (currentAudio) {
         currentAudio.pause();
+        currentAudio.currentTime = 0;
         setCurrentAudio(null);
+      }
+
+      // DEVICE COMPATIBILITY: iOS audio unlock with better error handling
+      if (needsAudioUnlock && capabilities?.recommendTTSGesture) {
+        try {
+          const tempAudio = new Audio();
+          const playPromise = tempAudio.play();
+          if (playPromise) {
+            await playPromise.catch(() => { });
+          }
+          setNeedsAudioUnlock(false);
+        } catch {
+          // Ignore unlock errors - will try on next interaction
+        }
       }
 
       setIsPlayingAudio(true);
 
-      // Try server-side TTS first (Google Cloud TTS with Thai voice)
+      // DEVICE COMPATIBILITY: Try server-side TTS first (better quality) with timeout
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for TTS
+
         const response = await fetch(`${API_BASE}/api/text-to-speech`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
           body: JSON.stringify({
             text,
             language: "th" // Specify Thai language for better pronunciation
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error("Failed to generate speech");
@@ -210,29 +234,48 @@ const Chat = () => {
         const data = await response.json();
 
         if (data.success && data.audio) {
-          // Convert base64 to audio blob
-          const audioBlob = new Blob(
-            [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
-            { type: 'audio/mp3' }
-          );
-          const audioUrl = URL.createObjectURL(audioBlob);
+          // DEVICE COMPATIBILITY: Convert base64 to audio blob with error handling
+          try {
+            const audioBlob = new Blob(
+              [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
+              { type: 'audio/mp3' }
+            );
+            const audioUrl = URL.createObjectURL(audioBlob);
 
-          const audio = new Audio(audioUrl);
-          audio.onended = () => {
-            setIsPlayingAudio(false);
-            setCurrentAudio(null);
-            URL.revokeObjectURL(audioUrl);
-          };
-          audio.onerror = () => {
-            setIsPlayingAudio(false);
-            setCurrentAudio(null);
-            // Fallback to browser TTS
-            playBrowserTTS(text);
-          };
+            const audio = new Audio(audioUrl);
+            
+            // iOS Safari specific: Ensure audio can play
+            audio.load();
+            
+            audio.onended = () => {
+              setIsPlayingAudio(false);
+              setCurrentAudio(null);
+              URL.revokeObjectURL(audioUrl);
+            };
+            audio.onerror = (e) => {
+              console.warn("Audio playback error:", e);
+              setIsPlayingAudio(false);
+              setCurrentAudio(null);
+              URL.revokeObjectURL(audioUrl);
+              // Fallback to browser TTS
+              playBrowserTTS(text);
+            };
 
-          setCurrentAudio(audio);
-          await audio.play();
-          return;
+            setCurrentAudio(audio);
+            
+            // DEVICE COMPATIBILITY: Handle play promise for iOS
+            const playPromise = audio.play();
+            if (playPromise) {
+              await playPromise.catch((playErr) => {
+                console.warn("Audio play failed:", playErr);
+                playBrowserTTS(text);
+              });
+            }
+            return;
+          } catch (blobError) {
+            console.warn("Audio blob creation failed:", blobError);
+            throw blobError;
+          }
         }
       } catch (serverError) {
         console.warn("Server TTS failed, using browser TTS:", serverError);
@@ -242,39 +285,82 @@ const Chat = () => {
     } catch (err) {
       console.error("TTS error:", err);
       setIsPlayingAudio(false);
-      setError("ไม่สามารถเล่นเสียงได้ในขณะนี้");
+      if ((err as Error).name !== "AbortError") {
+        playBrowserTTS(text); // Final fallback
+      }
     }
   };
 
   const playBrowserTTS = (text: string) => {
-    // Use browser's Web Speech API as fallback
+    // DEVICE COMPATIBILITY: Use browser's Web Speech API as fallback with enhanced support
     if ('speechSynthesis' in window) {
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel();
+      try {
+        // Cancel any ongoing speech
+        window.speechSynthesis.cancel();
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'th-TH'; // Thai language
-      utterance.rate = 1.3; // Faster speech
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'th-TH'; // Thai language
+        utterance.rate = 1.3; // Faster speech
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
 
-      // Try to find a Thai voice
-      const voices = window.speechSynthesis.getVoices();
-      const thaiVoice = voices.find(voice => voice.lang.startsWith('th'));
-      if (thaiVoice) {
-        utterance.voice = thaiVoice;
+        // DEVICE COMPATIBILITY: Load voices asynchronously (important for Chrome/Edge)
+        const loadVoicesAndSpeak = () => {
+          const voices = window.speechSynthesis.getVoices();
+          
+          // Try to find a Thai voice (check multiple patterns)
+          const thaiVoice = voices.find(voice => 
+            voice.lang.startsWith('th') || 
+            voice.lang.includes('TH') ||
+            voice.name.includes('Thai')
+          );
+          
+          if (thaiVoice) {
+            utterance.voice = thaiVoice;
+          } else if (voices.length > 0) {
+            // Fallback: use first available voice if no Thai voice found
+            console.warn("No Thai voice found, using default");
+          }
+
+          utterance.onend = () => {
+            setIsPlayingAudio(false);
+          };
+
+          utterance.onerror = (e) => {
+            console.warn("Speech synthesis error:", e);
+            setIsPlayingAudio(false);
+            // Don't show error for "canceled" errors (user stopped audio)
+            if (e.error !== 'canceled' && e.error !== 'interrupted') {
+              setError("ไม่สามารถเล่นเสียงได้");
+            }
+          };
+
+          window.speechSynthesis.speak(utterance);
+        };
+
+        // DEVICE COMPATIBILITY: Handle voice loading (Chrome/Edge need this)
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          loadVoicesAndSpeak();
+        } else {
+          // Wait for voices to load
+          window.speechSynthesis.onvoiceschanged = () => {
+            loadVoicesAndSpeak();
+            window.speechSynthesis.onvoiceschanged = null; // Clean up
+          };
+          
+          // Fallback: try after 100ms if onvoiceschanged doesn't fire
+          setTimeout(() => {
+            if (window.speechSynthesis.getVoices().length > 0) {
+              loadVoicesAndSpeak();
+            }
+          }, 100);
+        }
+      } catch (ttsErr) {
+        console.error("Browser TTS error:", ttsErr);
+        setIsPlayingAudio(false);
+        setError("เบราว์เซอร์ไม่รองรับการอ่านข้อความ");
       }
-
-      utterance.onend = () => {
-        setIsPlayingAudio(false);
-      };
-
-      utterance.onerror = () => {
-        setIsPlayingAudio(false);
-        setError("ไม่สามารถเล่นเสียงได้");
-      };
-
-      window.speechSynthesis.speak(utterance);
     } else {
       setIsPlayingAudio(false);
       setError("เบราว์เซอร์ไม่รองรับการอ่านข้อความ");
@@ -282,18 +368,30 @@ const Chat = () => {
   };
 
   const stopAudio = () => {
-    if (currentAudio) {
-      currentAudio.pause();
-      setCurrentAudio(null);
-      setIsPlayingAudio(false);
+    // DEVICE COMPATIBILITY: Clean audio stop for all platforms
+    try {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0; // Reset to beginning
+        setCurrentAudio(null);
+      }
+    } catch (e) {
+      console.warn("Error stopping audio:", e);
     }
+    
+    setIsPlayingAudio(false);
+    
     // Also stop browser TTS if active
     if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {
+        console.warn("Error canceling speech synthesis:", e);
+      }
     }
   };
 
-  // Non-streaming version for fallback
+  // Non-streaming version for fallback - Enhanced for all devices
   const handleSend = async (text?: string) => {
     const messageText = text || input;
     if (!messageText.trim()) return;
@@ -314,15 +412,25 @@ const Chat = () => {
     pendingRequestRef.current = controller;
 
     try {
+      // DEVICE COMPATIBILITY: Add timeout for all requests
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45s timeout
+
       const response = await fetch(`${API_BASE}/api/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // Mobile browser compatibility
+          "Accept": "application/json",
+          "Cache-Control": "no-cache"
+        },
         body: JSON.stringify({
           text: messageText,
           user_id: "web",
         }),
         signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const body = await response.text();
@@ -370,8 +478,8 @@ const Chat = () => {
     }
   };
 
-  // Streaming version - Optimized for perceived speed
-  const handleSendWithStreaming = async (text?: string) => {
+  // Streaming version - Optimized for perceived speed and universal device support
+  const handleSendWithStreaming = async (text?: string, retryCount = 0) => {
     const messageText = text || input;
     if (!messageText.trim()) return;
 
@@ -404,9 +512,17 @@ const Chat = () => {
     pendingRequestRef.current = controller;
 
     try {
+      // DEVICE COMPATIBILITY: Add timeout for slow connections
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
       const response = await fetch(`${API_BASE}/api/messages/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // iOS Safari compatibility headers
+          "Cache-Control": "no-cache",
+          "X-Requested-With": "XMLHttpRequest"
+        },
         body: JSON.stringify({
           text: messageText,
           user_id: "web",
@@ -414,14 +530,25 @@ const Chat = () => {
         signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
         // Fallback to non-streaming if streaming endpoint fails
+        console.warn("Streaming failed, falling back to non-streaming");
         setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
         await handleSend(messageText);
         return;
       }
 
-      const reader = response.body?.getReader();
+      // DEVICE COMPATIBILITY: Check if streaming is supported
+      if (!response.body || typeof response.body.getReader !== 'function') {
+        console.warn("ReadableStream not supported, falling back to non-streaming");
+        setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
+        await handleSend(messageText);
+        return;
+      }
+
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
       let structuredData: StructuredPlace[] = [];
@@ -496,23 +623,43 @@ const Chat = () => {
         }
       }
     } catch (err) {
-      console.error(err);
-      if ((err as Error).name === "AbortError") {
+      console.error("Streaming error:", err);
+      
+      // DEVICE COMPATIBILITY: Enhanced error handling with retry logic
+      const isAborted = (err as Error).name === "AbortError";
+      const isNetworkError = (err as Error).message?.includes("network") || 
+                            (err as Error).message?.includes("fetch");
+      
+      if (isAborted) {
         setError("ยกเลิกการส่งข้อความ");
+        setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
+      } else if (isNetworkError && retryCount < 2) {
+        // Retry on network errors (max 2 retries)
+        console.log(`Network error, retrying... (attempt ${retryCount + 1})`);
+        setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
+        setTimeout(() => {
+          handleSendWithStreaming(messageText, retryCount + 1);
+        }, 1000 * (retryCount + 1)); // Exponential backoff
       } else {
-        setError("ไม่สามารถเชื่อมต่อ AI ได้ กรุณาลองใหม่");
+        // Final fallback: try non-streaming mode
+        console.warn("Streaming failed completely, trying non-streaming");
+        setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
+        
+        try {
+          await handleSend(messageText);
+        } catch (fallbackErr) {
+          setError("ไม่สามารถเชื่อมต่อ AI ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-error`,
+              content: "ขออภัยค่ะ ตอนนี้เชื่อมต่อ AI ไม่ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ตและลองใหม่อีกครั้ง 🔄",
+              isUser: false,
+              timestamp: createTimestamp(),
+            },
+          ]);
+        }
       }
-      // Remove streaming placeholder on error
-      setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-error`,
-          content: "ขออภัยค่ะ ระบบมีปัญหาชั่วคราว กรุณาลองใหม่อีกครั้ง",
-          isUser: false,
-          timestamp: createTimestamp(),
-        },
-      ]);
     } finally {
       setIsTyping(false);
       pendingRequestRef.current = null;
