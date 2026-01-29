@@ -482,6 +482,7 @@ def tts_endpoint():
     import tempfile
     import edge_tts
     import nest_asyncio
+    import re
     
     # Apply nest_asyncio to allow nested event loops 
     # (crucial for Flask/Gunicorn environments)
@@ -490,6 +491,18 @@ def tts_endpoint():
     try:
         data = request.get_json(silent=True) or {}
         text = data.get('text', '').strip()
+        
+        # [CLEANUP] Remove emojis and special characters for TTS
+        # Keep: Thai chars (\u0E00-\u0E7F), English (a-zA-Z), Numbers (0-9), 
+        # Spaces (\s), and basic punctuation (.,!?%)
+        if text:
+            # First, remove markdown bold/italic asterisks
+            text = text.replace('*', '')
+            # Regex to keep only speakable characters
+            text = re.sub(r'[^\u0E00-\u0E7F a-zA-Z0-9\s.,!?%]', '', text)
+            # Collapse multiple spaces
+            text = re.sub(r'\s+', ' ', text).strip()
+            
         # Default to Premwadee (female, thai) or Niwat (male, thai)
         voice = "th-TH-PremwadeeNeural" 
         
