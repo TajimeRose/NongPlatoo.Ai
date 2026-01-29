@@ -103,9 +103,13 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 
 # Configure CORS with security restrictions
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:8000,http://127.0.0.1:8080").split(",")
+# Clean up whitespace from split
+allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
+
 CORS(app, resources={
     r"/api/*": {
-        "origins": [os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000").split(",")],
+        "origins": allowed_origins,
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True,

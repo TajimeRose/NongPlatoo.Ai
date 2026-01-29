@@ -178,6 +178,35 @@
   .animation-delay-200 { animation-delay: 200ms; }
   .animation-delay-300 { animation-delay: 300ms; }
   .animation-delay-400 { animation-delay: 400ms; }
+
+  /* SPEED OPTIMIZATION: Smooth text streaming animation */
+  .streaming-text {
+    animation: streamIn 0.3s ease-out;
+  }
+
+  .skeleton-pulse {
+    animation: skeletonPulse 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes streamIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes skeletonPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 @keyframes float {
