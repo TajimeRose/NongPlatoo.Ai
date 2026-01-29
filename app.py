@@ -474,29 +474,19 @@ def get_memory_stats():
 @app.route('/api/tts', methods=['POST'])
 def tts_endpoint():
     """
-    Convert text to speech using OpenAI TTS API.
+    Convert text to speech using Edge TTS (Microsoft).
     Returns audio as base64-encoded MP3.
-    
-    Request body:
-    {
-        "text": "สวัสดีค่ะ ยินดีต้อนรับ",
-        "voice": "nova"  // optional: alloy, echo, fable, onyx, nova, shimmer
-    }
-    
-    Response:
-    {
-        "success": true,
-        "audio": "base64-encoded-mp3-data",
-        "format": "mp3"
-    }
     """
+    import asyncio
+    import base64
+    import tempfile
+    import edge_tts
+
     try:
-        import base64
-        from openai import OpenAI
-        
         data = request.get_json(silent=True) or {}
         text = data.get('text', '').strip()
-        voice = data.get('voice', 'shimmer')  # shimmer = female, clear voice
+        # Default to Premwadee (female, thai) or Niwat (male, thai)
+        voice = "th-TH-PremwadeeNeural" 
         
         if not text:
             return jsonify({
@@ -504,26 +494,35 @@ def tts_endpoint():
                 'error': 'Text is required'
             }), 400
         
-        # Validate voice option
-        valid_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
-        if voice not in valid_voices:
-            voice = 'nova'  # Default to female voice
+        # Use a temporary file to store the audio
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+            temp_filename = temp_file.name
+            
+        # Run edge-tts asynchronously
+        async def _generate_audio():
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(temp_filename)
+            
+        # Create new event loop for async call if needed
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        loop.run_until_complete(_generate_audio())
         
-        # Initialize OpenAI client
-        client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        
-        # Call OpenAI TTS API
-        response = client.audio.speech.create(
-            model="tts-1",  # Use tts-1 for faster response, tts-1-hd for higher quality
-            voice=voice,
-            input=text,
-            response_format="mp3"
-        )
-        
-        # Get audio content and encode to base64
-        audio_content = response.content
-        audio_base64 = base64.b64encode(audio_content).decode('utf-8')
-        
+        # Read the file and convert to base64
+        with open(temp_filename, "rb") as f:
+            audio_content = f.read()
+            audio_base64 = base64.b64encode(audio_content).decode('utf-8')
+            
+        # Clean up
+        try:
+            os.remove(temp_filename)
+        except:
+            pass
+            
         logger.info(f"[TTS] Generated audio for {len(text)} chars using voice '{voice}'")
         
         return jsonify({
@@ -1387,12 +1386,7 @@ def image_proxy():
             {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9,th;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Referer': 'https://www.google.com/maps/',
-                'Sec-Fetch-Dest': 'image',
-                'Sec-Fetch-Mode': 'no-cors',
-                'Sec-Fetch-Site': 'cross-site',
+                'Referer': 'https://www.google.com/',
             },
             {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',

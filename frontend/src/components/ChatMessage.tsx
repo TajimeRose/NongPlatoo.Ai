@@ -106,8 +106,6 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
           alt={name}
           className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
           loading="lazy"
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
           onError={handleImageError}
         />
         <div className="space-y-1">
@@ -194,8 +192,6 @@ const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: 
           alt={name}
           className="w-full h-full object-cover"
           loading="lazy"
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
           onError={handleImageError}
         />
       </div>
