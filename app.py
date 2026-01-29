@@ -516,12 +516,43 @@ def tts_endpoint():
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
             temp_filename = temp_file.name
             
-        # Run edge-tts asynchronously
+        # Run edge-tts asynchronously with fallback
         async def _generate_audio():
-            # Adjust pitch and rate to make it sound younger/fresher
-            # +10% rate for energetic/bright feel
-            communicate = edge_tts.Communicate(text, voice, rate="+10%")
-            await communicate.save(temp_filename)
+            nonlocal voice
+            saved = False
+            
+            # Attempt 1: Desired Voice + Adjustments
+            try:
+                # Try adding rate adjustment
+                communicate = edge_tts.Communicate(text, voice, rate="+10%")
+                await communicate.save(temp_filename)
+                saved = True
+            except Exception as e:
+                logger.warning(f"[TTS] Attempt 1 (Achara+Rate) failed: {e}")
+            
+            # Attempt 2: Desired Voice (Standard)
+            if not saved:
+                try:
+                    communicate = edge_tts.Communicate(text, voice)
+                    await communicate.save(temp_filename)
+                    saved = True
+                    logger.info(f"[TTS] Fallback to standard Achara success")
+                except Exception as e:
+                    logger.warning(f"[TTS] Attempt 2 (Achara Standard) failed: {e}")
+
+            # Attempt 3: Safe Fallback (Premwadee)
+            if not saved:
+                safe_voice = "th-TH-PremwadeeNeural"
+                try:
+                    communicate = edge_tts.Communicate(text, safe_voice)
+                    await communicate.save(temp_filename)
+                    saved = True
+                    # Update voice variable for logging
+                    voice = safe_voice
+                    logger.warning(f"[TTS] Fallback to Premwadee success")
+                except Exception as e:
+                    logger.error(f"[TTS] All attempts failed. Last error: {e}")
+                    raise e
         
         # Use asyncio.run which is now safe thanks to nest_asyncio
         asyncio.run(_generate_audio())
