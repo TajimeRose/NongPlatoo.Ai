@@ -79,10 +79,12 @@ import { getApiBase } from "@/lib/api";
 const API_BASE = getApiBase();
 
 const suggestedQuestions = [
+  "แนะนำสถานที่ท่องเที่ยว",
   "ดอนหอยหลอด",
-  "อัมพวา",
-  "คาเฟ่",
-  "ร้านอาหาร",
+  "แนะนำร้านอาหารอร่อยๆ",
+  "ตลาดน้ำอัมพวา",
+  "วัด",
+  "ที่พัก",
 ];
 
 const Chat = () => {
@@ -134,7 +136,7 @@ const Chat = () => {
     // Detect browser capabilities
     const caps = detectBrowserCapabilities();
     setCapabilities(caps);
-    
+
     // Check speech support
     const windowWithSpeech = window as unknown as Window & {
       SpeechRecognition?: SpeechRecognitionStatic;
@@ -215,7 +217,7 @@ const Chat = () => {
 
         const response = await fetch(`${API_BASE}/api/text-to-speech`, {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
             "Accept": "application/json"
           },
@@ -244,10 +246,10 @@ const Chat = () => {
             const audioUrl = URL.createObjectURL(audioBlob);
 
             const audio = new Audio(audioUrl);
-            
+
             // iOS Safari specific: Ensure audio can play
             audio.load();
-            
+
             audio.onended = () => {
               setIsPlayingAudio(false);
               setCurrentAudio(null);
@@ -263,7 +265,7 @@ const Chat = () => {
             };
 
             setCurrentAudio(audio);
-            
+
             // DEVICE COMPATIBILITY: Handle play promise for iOS
             const playPromise = audio.play();
             if (playPromise) {
@@ -308,14 +310,14 @@ const Chat = () => {
         // DEVICE COMPATIBILITY: Load voices asynchronously (important for Chrome/Edge)
         const loadVoicesAndSpeak = () => {
           const voices = window.speechSynthesis.getVoices();
-          
+
           // Try to find a Thai voice (check multiple patterns)
-          const thaiVoice = voices.find(voice => 
-            voice.lang.startsWith('th') || 
+          const thaiVoice = voices.find(voice =>
+            voice.lang.startsWith('th') ||
             voice.lang.includes('TH') ||
             voice.name.includes('Thai')
           );
-          
+
           if (thaiVoice) {
             utterance.voice = thaiVoice;
           } else if (voices.length > 0) {
@@ -349,7 +351,7 @@ const Chat = () => {
             loadVoicesAndSpeak();
             window.speechSynthesis.onvoiceschanged = null; // Clean up
           };
-          
+
           // Fallback: try after 100ms if onvoiceschanged doesn't fire
           setTimeout(() => {
             if (window.speechSynthesis.getVoices().length > 0) {
@@ -379,9 +381,9 @@ const Chat = () => {
     } catch (e) {
       console.warn("Error stopping audio:", e);
     }
-    
+
     setIsPlayingAudio(false);
-    
+
     // Also stop browser TTS if active
     if ('speechSynthesis' in window) {
       try {
@@ -418,7 +420,7 @@ const Chat = () => {
 
       const response = await fetch(`${API_BASE}/api/messages`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           // Mobile browser compatibility
           "Accept": "application/json",
@@ -518,7 +520,7 @@ const Chat = () => {
 
       const response = await fetch(`${API_BASE}/api/messages/stream`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           // iOS Safari compatibility headers
           "Cache-Control": "no-cache",
@@ -625,12 +627,12 @@ const Chat = () => {
       }
     } catch (err) {
       console.error("Streaming error:", err);
-      
+
       // DEVICE COMPATIBILITY: Enhanced error handling with retry logic
       const isAborted = (err as Error).name === "AbortError";
-      const isNetworkError = (err as Error).message?.includes("network") || 
-                            (err as Error).message?.includes("fetch");
-      
+      const isNetworkError = (err as Error).message?.includes("network") ||
+        (err as Error).message?.includes("fetch");
+
       if (isAborted) {
         setError("ยกเลิกการส่งข้อความ");
         setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
@@ -645,7 +647,7 @@ const Chat = () => {
         // Final fallback: try non-streaming mode
         console.warn("Streaming failed completely, trying non-streaming");
         setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
-        
+
         try {
           await handleSend(messageText);
         } catch (fallbackErr) {
@@ -688,7 +690,7 @@ const Chat = () => {
 
   const startListening = async () => {
     if (typeof window === "undefined") return;
-    
+
     if (!capabilities || !capabilities.canUseSpeechRecognition) {
       if (capabilities?.isIPad) {
         setError("📱 Speech recognition is not available on iPad. Please use text input instead.");
