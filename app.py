@@ -477,6 +477,11 @@ def tts_endpoint():
     import base64
     import tempfile
     import edge_tts
+    import nest_asyncio
+    
+    # Apply nest_asyncio to allow nested event loops 
+    # (crucial for Flask/Gunicorn environments)
+    nest_asyncio.apply()
 
     try:
         data = request.get_json(silent=True) or {}
@@ -498,15 +503,9 @@ def tts_endpoint():
         async def _generate_audio():
             communicate = edge_tts.Communicate(text, voice)
             await communicate.save(temp_filename)
-            
-        # Create new event loop for async call if needed
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        loop.run_until_complete(_generate_audio())
+        
+        # Use asyncio.run which is now safe thanks to nest_asyncio
+        asyncio.run(_generate_audio())
         
         # Read the file and convert to base64
         with open(temp_filename, "rb") as f:
