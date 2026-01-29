@@ -1501,6 +1501,62 @@ class TravelChatbot:
             parts.append("Knowledge scope: " + ", ".join(profile["knowledge_scope"]))
         return " | ".join(parts)
 
+    def _get_recommendations(self, count: int = 3, language: str = "th", exclude_ids: Optional[List[str]] = None) -> str:
+        """Generate tourism recommendations from the database.
+        
+        Args:
+            count: Number of recommendations to include (default 3)
+            language: 'th' for Thai, 'en' for English
+            exclude_ids: List of place IDs to exclude from recommendations
+            
+        Returns:
+            Formatted recommendation text suitable for appending to a response
+        """
+        import random
+        
+        if not self.travel_data:
+            return ""
+        
+        exclude_set = set(exclude_ids) if exclude_ids else set()
+        available_places = [
+            p for p in self.travel_data 
+            if p and self._entry_identifier(p) not in exclude_set
+        ]
+        
+        if not available_places:
+            return ""
+        
+        # Randomly select recommendations from available places
+        try:
+            selected = random.sample(available_places, min(count, len(available_places)))
+        except (ValueError, TypeError):
+            selected = available_places[:min(count, len(available_places))]
+        
+        if language == "th":
+            rec_intro = "หากสนใจการท่องเที่ยว ลองเที่ยวที่เหล่านี้ดู:"
+        else:
+            rec_intro = "If you're interested in travel, try visiting these places:"
+        
+        recommendations = [rec_intro]
+        
+        for idx, place in enumerate(selected, 1):
+            name = place.get("place_name") or place.get("name") or "Unknown"
+            location = place.get("location", {}) or {}
+            district = location.get("district", "")
+            
+            if language == "th":
+                if district:
+                    recommendations.append(f"{idx}. {name} (อำเภอ{district})")
+                else:
+                    recommendations.append(f"{idx}. {name}")
+            else:
+                if district:
+                    recommendations.append(f"{idx}. {name} ({district} District)")
+                else:
+                    recommendations.append(f"{idx}. {name}")
+        
+        return "\n".join(recommendations)
+
     def _create_simple_response(self, context_data: List[Dict], language: str, is_specific_place: bool = False) -> str:
         if not context_data:
             return self._prompt_path(
@@ -1704,6 +1760,13 @@ class TravelChatbot:
         )
         if self.gpt_service:
             try:
+                analysis_context = None
+                try:
+                    analysis_payload = self.gpt_service.analyze_user_intent(user_message, language)
+                    analysis_context = json.dumps(analysis_payload, ensure_ascii=False)
+                except Exception as exc:
+                    logger.warning(f"[GPT] Intent analysis skipped: {exc}")
+
                 gpt_payload = self.gpt_service.generate_response(
                     user_query=user_message,
                     context_data=[],
@@ -1718,6 +1781,7 @@ class TravelChatbot:
                         'character_note': character_note,
                     },
                     system_override=system_hint_th if language == 'th' else system_hint_th, # Force Thai persona instructions even for English to keep character
+                    analysis_context=analysis_context,
                 )
                 return {
                     'response': gpt_payload.get('response', ''),
@@ -2044,24 +2108,44 @@ class TravelChatbot:
 
         if self.gpt_service:
             try:
+                analysis_context = None
+                try:
+                    logger.info(f"[CHAT] Running intent analysis on user query: {clean_question[:100]}...")
+                    analysis_payload = self.gpt_service.analyze_user_intent(clean_question, language)
+                    analysis_context = json.dumps(analysis_payload, ensure_ascii=False)
+                    logger.info(f"[CHAT] Intent analysis: intent={analysis_payload.get('intent')}, summary={analysis_payload.get('summary')[:50]}")
+                except Exception as exc:
+                    logger.warning(f"[GPT] Intent analysis skipped: {exc}")
+
+                logger.info(f"[CHAT] Generating response with {len(matched_data)} database matches, intent_type={intent_type}")
                 gpt_result = self.gpt_service.generate_response(
                     user_query=clean_question,
                     context_data=matched_data,
                     data_type='travel',
                     intent=detected_intent,
                     intent_type=intent_type,
-                    data_status=data_status
+                    data_status=data_status,
+                    analysis_context=analysis_context,
                 )
 
+                # Append recommendations if no database matches were found
+                response_text = gpt_result['response']
+                if not matched_data:
+                    recommendations = self._get_recommendations(count=3, language=language)
+                    if recommendations:
+                        response_text = f"{response_text}\n\n{recommendations}"
+
                 return finalize_response({
-                    'response': gpt_result['response'],
+                    'response': response_text,
                     'structured_data': matched_data,
                     'language': language,
                     'source': gpt_result.get('source', 'openai'),
                     'intent': detected_intent,
                     'tokens_used': gpt_result.get('tokens_used'),
                     'data_status': data_status,
-                    'character_note': character_note
+                    'character_note': character_note,
+                    'place_count': len(matched_data),
+                    'places_found': len(matched_data) > 0
                 })
                 
             except Exception as e:
@@ -2074,7 +2158,9 @@ class TravelChatbot:
                     'source': 'simple_fallback',
                     'intent': detected_intent,
                     'gpt_error': str(e),
-                    'data_status': data_status
+                    'data_status': data_status,
+                    'place_count': len(matched_data),
+                    'places_found': len(matched_data) > 0
                 })
         else:
             simple_response = self._create_simple_response(matched_data, language, is_specific_place=is_specific_place)
@@ -2084,7 +2170,9 @@ class TravelChatbot:
                 'language': language,
                 'source': 'simple',
                 'intent': detected_intent,
-                'data_status': data_status
+                'data_status': data_status,
+                'place_count': len(matched_data),
+                'places_found': len(matched_data) > 0
             })
 
     def get_response_stream(self, user_message: str, user_id: str = "default"):
@@ -2179,15 +2267,37 @@ class TravelChatbot:
         # Stream GPT response
         if self.gpt_service:
             try:
+                analysis_context = None
+                try:
+                    logger.info(f"[CHAT-STREAM] Running intent analysis on user query: {clean_question[:100]}...")
+                    analysis_payload = self.gpt_service.analyze_user_intent(clean_question, language)
+                    analysis_context = json.dumps(analysis_payload, ensure_ascii=False)
+                    logger.info(f"[CHAT-STREAM] Intent analysis: intent={analysis_payload.get('intent')}, summary={analysis_payload.get('summary')[:50]}")
+                except Exception as exc:
+                    logger.warning(f"[GPT] Intent analysis skipped: {exc}")
+
+                logger.info(f"[CHAT-STREAM] Streaming with {len(matched_data)} database matches, intent_type={intent_type}")
+                
+                # Collect recommendations to append if no data
+                recommendations_text = ""
+                if not matched_data:
+                    recommendations_text = self._get_recommendations(count=3, language=language)
+                
+                # Stream the main response
                 for chunk in self.gpt_service.generate_response_stream(
                     user_query=clean_question,
                     context_data=matched_data,
                     data_type='travel',
                     intent=intent_type,
                     intent_type=intent_type,
-                    data_status=data_status
+                    data_status=data_status,
+                    analysis_context=analysis_context,
                 ):
                     yield chunk
+                
+                # Append recommendations after main response if no database matches
+                if recommendations_text:
+                    yield {"chunk": f"\n\n{recommendations_text}", "language": language, "source": "recommendation_engine"}
             except Exception as e:
                 logger.error(f"GPT streaming failed: {e}")
                 yield {"type": "error", "message": str(e)}

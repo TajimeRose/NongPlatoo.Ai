@@ -38,6 +38,9 @@ class GPTService:
         self.model_name = os.getenv("OPENAI_MODEL") or self.model_config.get(
             "default_model", DEFAULT_OPENAI_MODEL
         )
+        self.analysis_model = os.getenv("OPENAI_ANALYSIS_MODEL") or self.model_config.get(
+            "analysis_model", "gpt-4o-mini"
+        )
         system_data = PROMPT_REPO.get_prompt("chatbot/system", default={})
         self.system_prompts = system_data.get("default", {})
         self.character_profile = PROMPT_REPO.get_character_profile()
@@ -72,6 +75,73 @@ class GPTService:
     # Public API
     # ------------------------------------------------------------------
 
+    def analyze_user_intent(self, user_query: str, language: Optional[str] = None) -> Dict[str, Any]:
+        """Fast intent analysis using a lightweight model."""
+        if not self.client:
+            return {
+                "intent": "unknown",
+                "entities": [],
+                "desired_output": "unknown",
+                "constraints": [],
+                "tone": "neutral",
+                "summary": "OpenAI client not initialized",
+            }
+
+        lang = language or self._detect_language(user_query)
+        system_prompt = (
+            "You are a fast intent analyzer. Return a compact JSON object with keys: "
+            "intent, entities, desired_output, constraints, tone, summary. "
+            "Keep it short and actionable. Use Thai for Thai input, otherwise English."
+        )
+
+        try:
+            logger.info(f"[GPT-MINI] Analyzing intent using model: {self.analysis_model}")
+            response = self._create_chat_completion(
+                model=self.analysis_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query},
+                ],
+                temperature=0.2,
+                max_completion_tokens=200,
+                timeout=min(self.request_timeout, 20),
+            )
+            content = self._safe_extract_content(response)
+            if not content:
+                return {
+                    "intent": "unknown",
+                    "entities": [],
+                    "desired_output": "unknown",
+                    "constraints": [],
+                    "tone": "neutral",
+                    "summary": "empty analysis",
+                }
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, dict):
+                    logger.info(f"[GPT-MINI] Analysis result: intent={parsed.get('intent')}, entities={parsed.get('entities')}")
+                    return parsed
+            except Exception:
+                pass
+            return {
+                "intent": "unknown",
+                "entities": [],
+                "desired_output": "unknown",
+                "constraints": [],
+                "tone": "neutral",
+                "summary": content,
+            }
+        except Exception as exc:
+            logger.warning(f"[GPT] Intent analysis failed: {exc}")
+            return {
+                "intent": "unknown",
+                "entities": [],
+                "desired_output": "unknown",
+                "constraints": [],
+                "tone": "neutral",
+                "summary": "analysis error",
+            }
+
     def generate_response_stream(
         self,
         user_query: str,
@@ -82,6 +152,7 @@ class GPTService:
         intent_type: Optional[str] = None,
         data_status: Optional[Dict[str, Any]] = None,
         system_override: Optional[str] = None,
+        analysis_context: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
     ):
         """Generate streaming response from OpenAI for gradual text output."""
@@ -118,6 +189,8 @@ class GPTService:
 
             # Build messages array with conversation history
             messages = [{"role": "system", "content": system_override or self._system_prompt(language)}]
+            if analysis_context:
+                messages.append({"role": "system", "content": f"Fast intent analysis: {analysis_context}"})
             
             # Add conversation history if provided (last 5 exchanges to stay within token limits)
             if conversation_history:
@@ -181,6 +254,7 @@ class GPTService:
         intent_type: Optional[str] = None,
         data_status: Optional[Dict[str, Any]] = None,
         system_override: Optional[str] = None,
+        analysis_context: Optional[str] = None,
         stream: bool = False,
         conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
@@ -215,6 +289,8 @@ class GPTService:
 
             # Build messages array with conversation history
             messages = [{"role": "system", "content": system_override or self._system_prompt(language)}]
+            if analysis_context:
+                messages.append({"role": "system", "content": f"Fast intent analysis: {analysis_context}"})
             
             # Add conversation history if provided (last 5 exchanges)
             if conversation_history:
@@ -318,15 +394,18 @@ class GPTService:
         intent_type: Optional[str] = None,
     ) -> str:
         if not context_data:
-            return f"No verified {data_type} data available."
+            # Don't say "no data available" - just return empty and let AI answer naturally
+            return ""
 
         is_specific = intent_type == "specific"
         max_items = 3 if is_specific else 6
+        total_places = len(context_data)
 
-        context_parts = [f"=== VERIFIED DATA ({data_type.upper()}) ===\n"]
+        context_parts = [f"=== VERIFIED DATA ({data_type.upper()}) - Total Places Found: {total_places} ===\n"]
+        
         for idx, item in enumerate(context_data[:max_items], 1):
             name = item.get("place_name") or item.get("name") or "Unknown"
-            context_parts.append(f"\n[Place {idx}]")
+            context_parts.append(f"\n[Place {idx}/{min(total_places, max_items)}]")
             context_parts.append(f"Name: {name}")
 
             location = item.get("location", {}) or {}
@@ -403,7 +482,19 @@ class GPTService:
                 summary = detail or entry_description
                 if summary:
                     context_parts.append(f"Summary: {summary}")
+                
+                # Add more details in suggestions mode
+                category = item.get("category") or place_info.get("category_description")
+                if category:
+                    context_parts.append(f"Category: {category}")
+                
+                best_time = item.get("best_time") or place_info.get("best_time")
+                if best_time:
+                    context_parts.append(f"Best Time: {best_time}")
 
+        if total_places > max_items:
+            context_parts.append(f"\n... and {total_places - max_items} more place(s) available")
+        
         context_parts.append("\n=== END DATA ===")
         return "\n".join(context_parts)
 
@@ -421,11 +512,9 @@ class GPTService:
         success = status.get("success", True)
         message = status.get("message") or status.get("error")
 
+        # When there's no data, don't add a status note - let the guardrail handle it naturally
         if success and not has_data:
-            return context_prompts.get(
-                "no_data",
-                "There is no verified local dataset available for this query. Respond with general knowledge.",
-            )
+            return ""
 
         if success:
             return ""
@@ -480,12 +569,15 @@ class GPTService:
 
         if language == "th":
             return (
-                "ยังไม่มีข้อมูลยืนยันจากฐานข้อมูลให้ใช้อ้างอิง ให้แจ้งข้อจำกัดนี้กับผู้ใช้ "
-                "พร้อมตอบด้วยความรู้ทั่วไปที่เชื่อถือได้เท่านั้น ให้รายละเอียดและครอบคลุม และเชิญชวนให้ผู้ใช้ระบุรายละเอียดเพิ่มเติม"
+                "ให้ตอบคำถามของผู้ใช้อย่างเป็นธรรมชาติและมีประโยชน์ "
+                "ตอบด้วยความรู้ทั่วไปที่เชื่อถือได้ ให้รายละเอียดและครอบคลุมพอสมควร "
+                "และเมื่อจบคำตอบ ให้ชักชวนให้ผู้ใช้ลองเที่ยวสมุทรสงคราม "
+                "หากคำถามไม่เกี่ยวกับการท่องเที่ยว ให้ตอบคำถามนั้นก่อน แล้วยุติโดยเสนอให้ไปท่องเที่ยว"
             )
         return (
-            "No verified dataset is available for this turn. Make the limitation explicit, "
-            "answer with trusted general knowledge only with comprehensive details, and invite the user to share more specifics."
+            "Answer the user's question naturally and helpfully using trusted general knowledge with appropriate detail. "
+            "At the end of your response, encourage the user to visit Samut Songkhram attractions. "
+            "If the question is not about travel or tourism, answer it first then conclude by inviting them to explore local tourism."
         )
 
     def _build_fallback_payload(
