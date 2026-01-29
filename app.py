@@ -481,10 +481,28 @@ def tts_endpoint():
     import base64
     import tempfile
     import edge_tts
+    import nest_asyncio
+    import re
+    
+    # Apply nest_asyncio to allow nested event loops 
+    # (crucial for Flask/Gunicorn environments)
+    nest_asyncio.apply()
 
     try:
         data = request.get_json(silent=True) or {}
         text = data.get('text', '').strip()
+        
+        # [CLEANUP] Remove emojis and special characters for TTS
+        # Keep: Thai chars (\u0E00-\u0E7F), English (a-zA-Z), Numbers (0-9), 
+        # Spaces (\s), and basic punctuation (.,!?%)
+        if text:
+            # First, remove markdown bold/italic asterisks
+            text = text.replace('*', '')
+            # Regex to keep only speakable characters
+            text = re.sub(r'[^\u0E00-\u0E7F a-zA-Z0-9\s.,!?%]', '', text)
+            # Collapse multiple spaces
+            text = re.sub(r'\s+', ' ', text).strip()
+            
         # Default to Premwadee (female, thai) or Niwat (male, thai)
         voice = "th-TH-PremwadeeNeural" 
         
@@ -502,15 +520,9 @@ def tts_endpoint():
         async def _generate_audio():
             communicate = edge_tts.Communicate(text, voice)
             await communicate.save(temp_filename)
-            
-        # Create new event loop for async call if needed
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-        loop.run_until_complete(_generate_audio())
+        
+        # Use asyncio.run which is now safe thanks to nest_asyncio
+        asyncio.run(_generate_audio())
         
         # Read the file and convert to base64
         with open(temp_filename, "rb") as f:

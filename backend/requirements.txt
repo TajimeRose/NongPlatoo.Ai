@@ -32,6 +32,8 @@ openai >= 1.35.0
 # Text-to-Speech Services
 gTTS>=2.5.0  # FREE Google Text-to-Speech (no API key needed, great for Thai)
 google-cloud-texttospeech>=2.14.0  # Premium option (requires API key)
+edge-tts>=6.1.9  # High quality free Microsoft TTS
+nest_asyncio>=1.5.8  # Fix for asyncio loops in Flask/Gunicorn
 
 # Semantic Search (optional but enables FlexibleMatcher)
 numpy>=1.24.0
