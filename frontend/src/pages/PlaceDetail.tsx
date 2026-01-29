@@ -172,7 +172,9 @@ const PlaceDetail = () => {
     const value = place.latitude ?? place.lat ?? place.location_lat;
     const num = Number(value);
     const result = Number.isFinite(num) ? num : null;
-    console.log('Latitude check:', { value, num, result, place_id: place.id });
+    if (import.meta.env.DEV) {
+      console.log('Latitude check:', { value, num, result, place_id: place.id });
+    }
     return result;
   }, [place]);
 
@@ -181,7 +183,9 @@ const PlaceDetail = () => {
     const value = place.longitude ?? place.lng ?? place.location_lng;
     const num = Number(value);
     const result = Number.isFinite(num) ? num : null;
-    console.log('Longitude check:', { value, num, result, place_id: place.id });
+    if (import.meta.env.DEV) {
+      console.log('Longitude check:', { value, num, result, place_id: place.id });
+    }
     return result;
   }, [place]);
 
