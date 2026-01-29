@@ -1,29 +1,66 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+
+// Global AudioContext to persist across re-renders and component mounts
+// This is crucial for iOS to maintain the "unlocked" state
+let globalAudioContext: AudioContext | null = null;
+let isUnlocked = false;
+
+const getAudioContext = () => {
+    if (!globalAudioContext) {
+        // Fallback for older browsers (unlikely needed for modern iOS but good practice)
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+            globalAudioContext = new AudioContextClass();
+        }
+    }
+    return globalAudioContext;
+};
 
 /**
- * useSpeechSynthesis - OpenAI TTS Edition
+ * useSpeechSynthesis - iOS Compatible Edition (Web Audio API)
  * 
- * Uses OpenAI TTS API for consistent Thai voice across all devices.
- * Falls back to Web Speech API if OpenAI TTS fails.
+ * Uses OpenAI TTS API and plays back using Web Audio API (AudioContext).
+ * This solves the iOS auto-play restriction by "unlocking" the AudioContext
+ * on the first user interaction.
  */
 export const useSpeechSynthesis = () => {
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [currentSentence, setCurrentSentence] = useState<string | null>(null);
 
-    // Queue system for sequential playback
+    // Queue system
     const queueRef = useRef<string[]>([]);
-    const prefetchQueueRef = useRef<Map<string, Blob>>(new Map()); // Store pre-fetched audio
+    const prefetchQueueRef = useRef<Map<string, ArrayBuffer>>(new Map()); // Store buffers, not blobs
     const processingRef = useRef(false);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    // Helper to fetch audio (internal)
-    const fetchAudio = async (text: string, signal?: AbortSignal): Promise<Blob> => {
-        // Check cache first
+    // Unlock Audio Context on mount (or first interaction)
+    const unlockAudioContext = useCallback(() => {
+        const ctx = getAudioContext();
+        if (ctx && ctx.state === 'suspended') {
+            ctx.resume().then(() => {
+                isUnlocked = true;
+                console.log('AudioContext resumed/unlocked');
+            }).catch(e => console.error('Failed to resume AudioContext', e));
+        } else if (ctx && !isUnlocked) {
+            // Force unlock for iOS by playing silent buffer
+            const buffer = ctx.createBuffer(1, 1, 22050);
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(ctx.destination);
+            source.start(0);
+            isUnlocked = true;
+            console.log('AudioContext forced unlocked');
+        }
+    }, []);
+
+    // Helper to fetch audio as ArrayBuffer
+    const fetchAudio = async (text: string, signal?: AbortSignal): Promise<ArrayBuffer> => {
+        // Check cache
         if (prefetchQueueRef.current.has(text)) {
-            const blob = prefetchQueueRef.current.get(text)!;
+            const buffer = prefetchQueueRef.current.get(text)!;
             prefetchQueueRef.current.delete(text);
-            return blob;
+            return buffer;
         }
 
         let attempt = 0;
@@ -36,7 +73,7 @@ export const useSpeechSynthesis = () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         text: text,
-                        voice: 'shimmer',
+                        voice: 'shimmer', // female voice
                         speed: 1.25
                     }),
                     signal: signal
@@ -51,8 +88,17 @@ export const useSpeechSynthesis = () => {
                     throw new Error(data.error || 'No audio returned');
                 }
 
-                return base64ToBlob(data.audio, 'audio/mpeg');
+                // Decode base64 to ArrayBuffer
+                const binaryString = window.atob(data.audio);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes.buffer;
+
             } catch (e) {
+                if (signal?.aborted) throw e;
                 attempt++;
                 if (attempt >= maxAttempts) throw e;
                 await new Promise(r => setTimeout(r, 500 * attempt));
@@ -61,21 +107,50 @@ export const useSpeechSynthesis = () => {
         throw new Error('Failed to fetch TTS');
     };
 
-    // Trigger pre-fetch for the NEXT item in queue
+    // Trigger pre-fetch
     const triggerPrefetch = useCallback(() => {
         if (queueRef.current.length > 0) {
             const nextText = queueRef.current[0];
             if (!prefetchQueueRef.current.has(nextText)) {
-                // Determine a unique way to track this request if needed, 
-                // but for now just fire and forget into the map
-                fetchAudio(nextText).then(blob => {
-                    prefetchQueueRef.current.set(nextText, blob);
-                }).catch(e => console.warn('Prefetch failed', e));
+                fetchAudio(nextText)
+                    .then(buffer => {
+                        prefetchQueueRef.current.set(nextText, buffer);
+                    })
+                    .catch(e => console.warn('Prefetch failed', e));
             }
         }
     }, []);
 
-    // Process the queue - fetch audio from OpenAI TTS and play
+    // Play AudioBuffer using Web Audio API
+    const playAudioBuffer = async (arrayBuffer: ArrayBuffer): Promise<void> => {
+        const ctx = getAudioContext();
+        if (!ctx) throw new Error('AudioContext not supported');
+
+        // Ensure context is running
+        if (ctx.state === 'suspended') {
+            await ctx.resume();
+        }
+
+        // Decode audio data
+        // Note: decodeAudioData detaches the arrayBuffer, so we use a slice if reusing (though we consume it here)
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+        return new Promise((resolve, reject) => {
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
+
+            source.onended = () => {
+                currentSourceRef.current = null;
+                resolve();
+            };
+
+            currentSourceRef.current = source;
+            source.start(0);
+        });
+    };
+
+    // Process queue
     const processQueue = useCallback(async () => {
         if (queueRef.current.length === 0 || processingRef.current) {
             if (queueRef.current.length === 0) {
@@ -90,70 +165,59 @@ export const useSpeechSynthesis = () => {
         const text = queueRef.current.shift()!;
         setCurrentSentence(text);
 
-        // IMMEDIATE: Trigger pre-fetch for the *next* item while current one processes
+        // Prefetch next
         triggerPrefetch();
 
         try {
             abortControllerRef.current = new AbortController();
 
-            // Get audio (from cache or fetch)
-            const audioBlob = await fetchAudio(text, abortControllerRef.current.signal);
-            const audioUrl = URL.createObjectURL(audioBlob);
+            // Fetch
+            const arrayBuffer = await fetchAudio(text, abortControllerRef.current.signal);
 
-            audioRef.current = new Audio(audioUrl);
-
-            await new Promise<void>((resolve, reject) => {
-                if (!audioRef.current) {
-                    reject(new Error('Audio element not created'));
-                    return;
-                }
-
-                audioRef.current.onended = () => {
-                    URL.revokeObjectURL(audioUrl);
-                    resolve();
-                };
-
-                audioRef.current.onerror = (e) => {
-                    URL.revokeObjectURL(audioUrl);
-                    reject(e);
-                };
-
-                audioRef.current.play().catch(reject);
-            });
+            // Play
+            if (!abortControllerRef.current.signal.aborted) {
+                await playAudioBuffer(arrayBuffer);
+            }
 
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
                 console.log('🛑 TTS playback cancelled');
             } else {
                 console.error('TTS error:', error);
-                console.warn('TTS failed and fallback is disabled');
             }
         } finally {
             processingRef.current = false;
-            audioRef.current = null;
+            currentSourceRef.current = null;
             abortControllerRef.current = null;
 
-            // Process next in queue
+            // Next
             processQueue();
         }
     }, [triggerPrefetch]);
 
-    // ... (keep fallbackToWebSpeech commented out or as is)
-
-    // Public speak function
+    // Public API
     const speak = useCallback((text: string, force = false) => {
+        // Ideally unlock on every user-initiated interaction just in case
+        unlockAudioContext();
+
         if (force) {
-            // Clear queue and cancel current audio
+            // Cancel current
             queueRef.current = [];
-            setCurrentSentence(null); // Clear text
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
+            setCurrentSentence(null);
+
+            if (currentSourceRef.current) {
+                try {
+                    currentSourceRef.current.stop();
+                    currentSourceRef.current.disconnect();
+                } catch (e) {
+                    // ignore if already stopped
+                }
+                currentSourceRef.current = null;
             }
+
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort();
             }
-            window.speechSynthesis?.cancel();
             processingRef.current = false;
         }
 
@@ -162,45 +226,38 @@ export const useSpeechSynthesis = () => {
         if (!processingRef.current) {
             processQueue();
         }
-    }, [processQueue]);
+    }, [processQueue, unlockAudioContext]);
 
-    // Cancel all speech
     const cancel = useCallback(() => {
         queueRef.current = [];
         processingRef.current = false;
         setCurrentSentence(null);
 
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
+        if (currentSourceRef.current) {
+            try {
+                currentSourceRef.current.stop();
+                currentSourceRef.current.disconnect();
+            } catch (e) { }
+            currentSourceRef.current = null;
         }
 
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
 
-        window.speechSynthesis?.cancel();
         setIsSpeaking(false);
     }, []);
+
+    // Helper to check if browser supports Web Audio API (almost all do)
+    const hasSupport = typeof window !== 'undefined' &&
+        (!!(window.AudioContext || (window as any).webkitAudioContext));
 
     return {
         speak,
         cancel,
         isSpeaking,
-        currentSentence, // Export this
-        hasSupport: true
+        currentSentence,
+        hasSupport
     };
 };
 
-// Helper function to convert base64 to Blob
-function base64ToBlob(base64: string, mimeType: string): Blob {
-    const byteCharacters = atob(base64);
-    const byteNumbers = new Array(byteCharacters.length);
-
-    for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-
-    const byteArray = new Uint8Array(byteNumbers);
-    return new Blob([byteArray], { type: mimeType });
-}
