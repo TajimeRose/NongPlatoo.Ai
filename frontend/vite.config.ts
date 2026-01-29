@@ -26,5 +26,26 @@ export default defineConfig(({ mode }) => ({
     outDir: path.resolve(__dirname, "../backend/static"),
     emptyOutDir: true,
     assetsDir: "assets",
+    // Production optimizations
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console.logs in production
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.debug', 'console.trace']
+      }
+    },
+    rollupOptions: {
+      output: {
+        // Manual chunk splitting for better caching
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['lucide-react', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          'utils': ['clsx', 'tailwind-merge']
+        }
+      }
+    },
+    // Chunk size warnings
+    chunkSizeWarningLimit: 1000,
   },
 }));

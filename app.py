@@ -8,7 +8,7 @@ import concurrent.futures
 import logging
 from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, Response, send_from_directory, abort, stream_with_context
+from flask import Flask, request, jsonify, Response, send_from_directory, abort
 from flask_cors import CORS
 
 # Setup logging for debugging
@@ -103,15 +103,16 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 
 # Configure CORS with security restrictions
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:8000,http://127.0.0.1:8080").split(",")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:3000,http://127.0.0.1:8000,http://127.0.0.1:8080").split(",")
 # Clean up whitespace from split
 allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
 
 CORS(app, resources={
     r"/api/*": {
         "origins": allowed_origins,
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Cache-Control", "X-Requested-With", "Accept"],
+        "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+        "allow_headers": ["Content-Type", "Authorization", "Cache-Control", "Pragma", "Accept", "Accept-Language", "Accept-Encoding", "Origin", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Content-Length"],
         "supports_credentials": True,
         "max_age": 3600
     }
@@ -192,6 +193,40 @@ def get_chatbot():
 
 # ===== End iOS Fix =====
 
+# ===== Input Validation and Security =====
+def validate_message_input(message: str) -> tuple[bool, str]:
+    """Validate user message input"""
+    if not message or not isinstance(message, str):
+        return False, "Message must be a non-empty string"
+    
+    message = message.strip()
+    if not message:
+        return False, "Message cannot be empty"
+    
+    if len(message) > 5000:
+        return False, "Message too long (max 5000 characters)"
+    
+    if len(message) < 2:
+        return False, "Message too short (min 2 characters)"
+    
+    return True, ""
+
+def sanitize_user_id(user_id: str) -> str:
+    """Sanitize user ID to prevent injection attacks"""
+    if not user_id or not isinstance(user_id, str):
+        return "default"
+    
+    # Remove any non-alphanumeric characters except hyphens and underscores
+    import re
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', user_id)
+    
+    if not sanitized or len(sanitized) > 100:
+        return "default"
+    
+    return sanitized
+
+# ===== End Input Validation =====
+
 # JWT Setup for authentication
 try:
     from flask_jwt_extended import JWTManager
@@ -222,23 +257,20 @@ except Exception as e:
     # Fallback definitions to prevent NameError if imports fail. These will
     # raise a runtime error when used, making the failure explicit.
     logger.error(f"✗ Failed to import chat module: {e}")
-    # Capture exception string to avoid NameError (exception variables are deleted after except block)
-    error_msg = str(e)
     def chat_with_bot(message: str, user_id: str = "default") -> str:
-        raise RuntimeError(f"Chat module unavailable: {error_msg}")
+        raise RuntimeError(f"Chat module unavailable: {e}")
     
     def chat_with_bot_stream(message: str, user_id: str = "default"):
-        yield {"type": "text", "text": f"⚠️ ระบบขัดข้อง: {error_msg}"}
-        yield {"type": "done"}
+        yield {"type": "error", "message": f"Chat module unavailable: {e}"}
 
     def get_chat_response(message: str, user_id: str = "default") -> dict:
         return {
-            'response': f"⚠️ ระบบขัดข้อง: {error_msg}",
+            'response': '',
             'structured_data': [],
             'language': 'th',
             'intent': None,
             'source': 'error',
-            'error': f'Chat module unavailable: {error_msg}',
+            'error': f'Chat module unavailable: {e}',
         }
 
 try:
@@ -250,8 +282,7 @@ except Exception as db_import_error:
     logger.error(f"✗ Failed to import db module: {db_import_error}")
     _db_error_msg = str(db_import_error)  # Capture error message
     def init_db() -> None:
-        logger.error(f"[CRITICAL] init_db unavailable due to import error: {_db_error_msg}")
-        print(f"[CRITICAL] init_db unavailable: {_db_error_msg}")
+        logger.critical(f"init_db unavailable due to import error: {_db_error_msg}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -314,6 +345,15 @@ def api_query():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
+        
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
+            return jsonify({'error': error_msg}), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
+        
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -601,6 +641,18 @@ def post_message_stream():
         user_id = data.get('user_id', 'default')
         request_id = data.get('request_id') or str(uuid.uuid4())
         
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': error_msg
+            }), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
+        
         # Try to get real user_id from JWT token if logged in
         try:
             from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
@@ -610,13 +662,6 @@ def post_message_stream():
                 user_id = str(jwt_user_id)
         except Exception:
             pass  # Not authenticated, use default
-        
-        if not user_message:
-            return jsonify({
-                'success': False,
-                'error': True,
-                'message': 'Text is required'
-            }), 400
         
         # Check for duplicate/retry requests (same request_id within 5 seconds)
         if request_id in _ACTIVE_REQUESTS:
@@ -1120,12 +1165,17 @@ def post_message():
         user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
 
-        if not user_message:
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
             return jsonify({
                 'success': False,
                 'error': True,
-                'message': 'Text is required'
+                'message': error_msg
             }), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
 
         # ----- เรียก get_chat_response แบบมี timeout -----
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -1210,7 +1260,6 @@ def post_message():
 
 
 
-
 @app.route('/api/places', methods=['GET'])
 def get_all_places():
     """Get all places from database for the Places page."""
@@ -1240,6 +1289,95 @@ def get_all_places():
             'success': False,
             'error': str(e),
             'places': []
+        }), 500
+
+
+@app.route('/api/places/<place_id>', methods=['GET'])
+def get_place_by_id(place_id: str):
+    """Get a single place by ID for the Place detail page."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            place = session.query(Place).filter(Place.id == place_id).first()
+            if not place:
+                return jsonify({
+                    'success': False,
+                    'error': 'Place not found'
+                }), 404
+
+            return jsonify({
+                'success': True,
+                'place': place.to_dict()
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/places/{place_id} failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/filters/districts', methods=['GET'])
+def get_districts():
+    """Get all unique districts from the places table."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            # Get unique districts from the city column
+            districts = session.query(Place.city).distinct().filter(Place.city.isnot(None)).all()
+            district_list = [row[0] for row in districts if row[0]]
+            
+            return jsonify({
+                'success': True,
+                'districts': sorted(district_list)
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/filters/districts failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'districts': []
+        }), 500
+
+
+@app.route('/api/filters/categories', methods=['GET'])
+def get_categories():
+    """Get all unique categories from the places table."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            # Get unique categories
+            categories = session.query(Place.category).distinct().filter(Place.category.isnot(None)).all()
+            category_list = [row[0] for row in categories if row[0]]
+            
+            return jsonify({
+                'success': True,
+                'categories': sorted(category_list)
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/filters/categories failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'categories': []
         }), 500
 
 
@@ -1295,8 +1433,8 @@ def submit_feedback():
             session.close()
             
     except Exception as e:
-        print(f"[ERROR] /api/feedback failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Feedback endpoint error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/feedback/stats', methods=['GET'])
@@ -1360,8 +1498,8 @@ def get_feedback_stats():
             session.close()
             
     except Exception as e:
-        print(f"[ERROR] /api/feedback/stats failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Feedback stats endpoint error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/firebase_config.js')
@@ -1500,14 +1638,17 @@ def image_proxy():
         )
 
 if __name__ == '__main__':
-    print("Samut Songkhram Travel Assistant")
+    logger.info("="*60)
+    logger.info("Samut Songkhram Travel Assistant - Starting")
+    logger.info("="*60)
+    
     try:
         logger.info("Initializing database...")
         init_db()
         logger.info("✓ Database initialized successfully")
     except Exception as e:
-        logger.error(f"[ERROR] Database initialization failed: {e}", exc_info=True)
-        print(f"[WARN] Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}", exc_info=True)
+        logger.warning("Continuing without full database functionality")
     
     # Preload semantic model to avoid first-request timeout (~29s delay)
     def preload_semantic_model():
@@ -1525,27 +1666,21 @@ if __name__ == '__main__':
         import threading
         preload_thread = threading.Thread(target=preload_semantic_model, daemon=True)
         preload_thread.start()
-        # Don't wait - let it load in background while server starts
+        logger.info("Started semantic model preload thread")
     except Exception as e:
         logger.warning(f"Could not start preload thread: {e}")
     
-    logger.info("[INFO] Starting Flask server on 0.0.0.0:8000...")
-    print("[INFO] Running app...")
-    print("[DEBUG] About to call app.run()...")
-    import sys
-    sys.stdout.flush()
+    logger.info("Starting Flask server on 0.0.0.0:8000")
+    
     try:
-        print("[DEBUG] Calling app.run() now...")
-        sys.stdout.flush()
         app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False, threaded=True)
-        print("[DEBUG] app.run() returned")
     except KeyboardInterrupt:
-        print("\n[INFO] Server stopped by user")
+        logger.info("Server stopped by user (KeyboardInterrupt)")
     except Exception as e:
-        logger.error(f"Flask server error: {e}", exc_info=True)
-        print(f"[ERROR] Flask crashed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.critical(f"Flask server crashed: {e}", exc_info=True)
+        raise
     finally:
-        print("[DEBUG] Finally block reached")
+        logger.info("="*60)
+        logger.info("Application shutdown complete")
+        logger.info("="*60)
 

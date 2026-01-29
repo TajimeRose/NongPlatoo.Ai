@@ -152,10 +152,33 @@ const Chat = () => {
     }
 
     return () => {
-      recognitionRef.current?.abort();
-      eventSourceRef.current?.close();
+      // Clean up speech recognition safely
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          try {
+            recognitionRef.current.abort();
+          } catch (abortErr) {
+            // Ignore cleanup errors
+          }
+        }
+      }
+      // Clean up event source
+      if (eventSourceRef.current) {
+        try {
+          eventSourceRef.current.close();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      // Clean up audio
       if (currentAudio) {
-        currentAudio.pause();
+        try {
+          currentAudio.pause();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
       }
     };
   }, [currentAudio]);
@@ -759,9 +782,11 @@ const Chat = () => {
 
     recognition.onend = () => {
       setIsListening(false);
-      const textToSend = (voiceTextRef.current || finalTranscript).trim();
-      if (textToSend) {
-        handleSend(textToSend);
+      const transcribedText = (voiceTextRef.current || finalTranscript).trim();
+      if (transcribedText) {
+        // Just populate the input field, don't auto-send
+        setInput(transcribedText);
+        setVoiceText(""); // Clear the voice text display
       } else {
         setError("No speech detected. Please try again.");
       }
@@ -788,11 +813,11 @@ const Chat = () => {
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-primary-foreground/70">
-                    NongPlaToo Voice
+                    Voice to Text
                   </p>
                   <p className="text-lg font-semibold">กำลังฟังอยู่...</p>
                   <p className="text-sm text-primary-foreground/80">
-                    พูดคำถามของคุณ
+                    พูดข้อความของคุณ
                   </p>
                 </div>
               </div>
@@ -811,6 +836,11 @@ const Chat = () => {
               <p className="text-sm text-primary-foreground/80">
                 {voiceText || "กำลังรอคำพูด..."}
               </p>
+              {voiceText && (
+                <p className="text-xs text-primary-foreground/60 mt-2">
+                  💡 ข้อความจะถูกใส่ในช่องพิมพ์ กดส่งเพื่อส่งข้อความ
+                </p>
+              )}
               <div className="mt-4 flex items-center gap-1">
                 <span className="w-1.5 h-6 bg-white/40 rounded-full animate-[pulse_1s_ease-in-out_infinite]" />
                 <span className="w-1.5 h-9 bg-white/60 rounded-full animate-[pulse_1.2s_ease-in-out_infinite]" />
@@ -906,7 +936,7 @@ const Chat = () => {
                     onClick={isListening ? stopListening : startListening}
                     disabled={isTyping}
                     className={isListening ? "animate-pulse shadow-elevated" : ""}
-                    title="Speak your question"
+                    title="Voice to Text - Convert speech to text"
                   >
                     <Mic className="w-5 h-5" />
                   </Button>

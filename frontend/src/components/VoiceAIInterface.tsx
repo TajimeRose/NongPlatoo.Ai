@@ -11,18 +11,19 @@ interface VoiceAIInterfaceProps {
 }
 
 const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
-    // Hooks
-    const {
-        isListening,
-        transcript,
-        startListening,
-        stopListening,
-        hasSupport: hasSTTSupport
-    } = useSpeechRecognition({
-        language: 'th-TH',
-        continuous: false, // Stop after one sentence to process
-        onResult: (result) => handleUserSpeech(result)
-    });
+    // Refs
+    const faceDetectionInitialRef = useRef(false);
+    const greetingTimeoutRef = useRef<number | null>(null);
+    const processingRef = useRef(false);
+    const handleUserSpeechRef = useRef<((text: string) => Promise<void>) | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
+
+    // State
+    const [status, setStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
+    const [pulseIntensity, setPulseIntensity] = useState(0);
+    const [faceDetected, setFaceDetected] = useState(false);
+    const [showGreeting, setShowGreeting] = useState(false);
+    const [assistantMessage, setAssistantMessage] = useState("");
 
     const {
         speak,
@@ -34,17 +35,23 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
 
     const { videoRef, result: faceResult } = useFaceDetection(isOpen);
 
-    // State
-    const [status, setStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking'>('idle');
-    const [pulseIntensity, setPulseIntensity] = useState(0);
-    const [faceDetected, setFaceDetected] = useState(false);
-    const [showGreeting, setShowGreeting] = useState(false);
-    const [assistantMessage, setAssistantMessage] = useState("");
-
-    // Refs
-    const faceDetectionInitialRef = useRef(false);
-    const greetingTimeoutRef = useRef<number | null>(null);
-    const processingRef = useRef(false);
+    // Initialize speech recognition hook with proper callback handling
+    const {
+        isListening,
+        transcript,
+        startListening,
+        stopListening,
+        hasSupport: hasSTTSupport
+    } = useSpeechRecognition({
+        language: 'th-TH',
+        continuous: false,
+        onResult: (result) => {
+            // Use ref to call the actual handler
+            if (handleUserSpeechRef.current) {
+                handleUserSpeechRef.current(result);
+            }
+        }
+    });
 
     // Initial greeting and auto-start listening
     useEffect(() => {
@@ -58,13 +65,20 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             return;
         }
 
-        // Auto-start listening immediately on mount (iPad friendly)
-        // Removing delay ensures we stay within the "User Gesture" context
-        if (!isListening && !isAssistantSpeaking && !processingRef.current) {
-            console.log("[VoiceAI] Auto-starting listening (Immediate)...");
-            startListening();
-        }
-    }, [isOpen, startListening, cancelSpeech, stopListening]); // Removed unstable deps to prevent loops
+        // Small delay to ensure hook is ready before starting
+        const startTimer = setTimeout(() => {
+            if (!isListening && !isAssistantSpeaking && !processingRef.current) {
+                console.log("[VoiceAI] Starting listening...");
+                try {
+                    startListening();
+                } catch (e) {
+                    console.error("[VoiceAI] Failed to start listening:", e);
+                }
+            }
+        }, 100);
+
+        return () => clearTimeout(startTimer);
+    }, [isOpen, isListening, isAssistantSpeaking, startListening, cancelSpeech, stopListening]);
 
     // Separate effect for face detection greeting (optional feature)
     useEffect(() => {
@@ -88,7 +102,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
         }
     }, [isOpen, faceResult.hasFace, faceDetected, speak]);
 
-    // Handle user speech result
+    // Handle user speech result - wrapped in useCallback to ensure stable reference
     const handleUserSpeech = async (text: string) => {
         if (!text.trim() || processingRef.current) return;
 
@@ -105,21 +119,47 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             setStatus('idle');
         } finally {
             processingRef.current = false;
+            // Auto-restart listening after processing if still open
+            if (isOpen && !isAssistantSpeaking) {
+                setTimeout(() => {
+                    try {
+                        startListening();
+                    } catch (e) {
+                        console.error("[VoiceAI] Failed to restart listening:", e);
+                    }
+                }, 500);
+            }
         }
     };
 
+    // Update ref whenever handleUserSpeech changes
+    useEffect(() => {
+        handleUserSpeechRef.current = handleUserSpeech;
+    }, [handleUserSpeech]);
+
     // Hard stop on close
     const handleClose = () => {
+        // Abort any ongoing API requests
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+        }
         cancelSpeech();
         stopListening();
         setAssistantMessage("");
         setStatus('idle');
+        processingRef.current = false;
         onClose();
     };
 
     // Process query with backend stream
     const processVoiceQuery = async (query: string) => {
         setAssistantMessage("");
+
+        // Create abort controller for cleanup
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
         try {
             const response = await fetch('/api/messages/stream', {
@@ -129,8 +169,15 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                     message: query,
                     user_id: 'voice-user',
                     request_id: crypto.randomUUID()
-                })
+                }),
+                signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
 
             if (!response.body) throw new Error("No response body");
 
@@ -139,101 +186,117 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             let buffer = "";
             let sentenceBuffer = "";
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
-                buffer += chunk;
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
 
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop() || "";
+                    const lines = buffer.split('\n\n');
+                    buffer = lines.pop() || "";
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6);
-                        try {
-                            const data = JSON.parse(jsonStr);
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const jsonStr = line.slice(6);
+                            try {
+                                const data = JSON.parse(jsonStr);
 
-                            if (data.type === 'text' || data.type === 'chunk') {
-                                const textChunk = data.text || data.chunk || "";
-                                setAssistantMessage(prev => prev + textChunk);
+                                if (data.type === 'text' || data.type === 'chunk') {
+                                    const textChunk = data.text || data.chunk || "";
+                                    setAssistantMessage(prev => prev + textChunk);
 
-                                // Accumulate for TTS
-                                sentenceBuffer += textChunk;
+                                    // Accumulate for TTS
+                                    sentenceBuffer += textChunk;
 
-                                // OPTIMIZED Buffering Logic:
-                                // goal: Start fast (low latency) -> Stay smooth (smart buffering)
+                                    // OPTIMIZED Buffering Logic:
+                                    // goal: Start fast (low latency) -> Stay smooth (smart buffering)
 
-                                let splitIndex = -1;
+                                    let splitIndex = -1;
 
-                                // Rule 1: First phrase needs to be fast! 
-                                // INCREASED THRESHOLD: Was >10, now >20 to prevent tiny first chunks
-                                if (!isAssistantSpeaking && sentenceBuffer.length > 20) {
-                                    // Look for any weak pause (comma, space) to start ASAP
-                                    const fastStartMatch = sentenceBuffer.match(/[, ]/);
-                                    if (fastStartMatch && fastStartMatch.index !== undefined && fastStartMatch.index > 10) {
-                                        splitIndex = fastStartMatch.index + 1;
-                                    }
-                                }
-
-                                // Rule 2: Normal flow (Strong punctuation)
-                                if (splitIndex === -1) {
-                                    // Only split if we have a decent chunk size to avoid choppy audio
-                                    if (sentenceBuffer.length > 50) {
-                                        const match = sentenceBuffer.match(/[.!?\n]+(?=\s|$)/);
-                                        if (match && match.index !== undefined) {
-                                            splitIndex = match.index + match[0].length;
+                                    // Rule 1: First phrase needs to be fast! 
+                                    // INCREASED THRESHOLD: Was >10, now >20 to prevent tiny first chunks
+                                    if (!isAssistantSpeaking && sentenceBuffer.length > 20) {
+                                        // Look for any weak pause (comma, space) to start ASAP
+                                        const fastStartMatch = sentenceBuffer.match(/[, ]/);
+                                        if (fastStartMatch && fastStartMatch.index !== undefined && fastStartMatch.index > 10) {
+                                            splitIndex = fastStartMatch.index + 1;
                                         }
                                     }
-                                }
 
-                                // Rule 3: Long buffer safety (prevent silence on long phrases)
-                                // INCREASED THRESHOLD: Was >60, now >120 to allow longer flowing sentences
-                                if (splitIndex === -1 && sentenceBuffer.length > 120) {
-                                    const lastSpace = sentenceBuffer.lastIndexOf(' ');
-                                    if (lastSpace > 50) {
-                                        splitIndex = lastSpace + 1;
+                                    // Rule 2: Normal flow (Strong punctuation)
+                                    if (splitIndex === -1) {
+                                        // Only split if we have a decent chunk size to avoid choppy audio
+                                        if (sentenceBuffer.length > 50) {
+                                            const match = sentenceBuffer.match(/[.!?\n]+(?=\s|$)/);
+                                            if (match && match.index !== undefined) {
+                                                splitIndex = match.index + match[0].length;
+                                            }
+                                        }
                                     }
-                                }
 
-                                // Execute split
-                                if (splitIndex !== -1) {
-                                    const toSpeak = sentenceBuffer.slice(0, splitIndex);
-                                    const remaining = sentenceBuffer.slice(splitIndex);
+                                    // Rule 3: Long buffer safety (prevent silence on long phrases)
+                                    // INCREASED THRESHOLD: Was >60, now >120 to allow longer flowing sentences
+                                    if (splitIndex === -1 && sentenceBuffer.length > 120) {
+                                        const lastSpace = sentenceBuffer.lastIndexOf(' ');
+                                        if (lastSpace > 50) {
+                                            splitIndex = lastSpace + 1;
+                                        }
+                                    }
 
-                                    if (toSpeak.trim()) {
+                                    // Execute split
+                                    if (splitIndex !== -1) {
+                                        const toSpeak = sentenceBuffer.slice(0, splitIndex);
+                                        const remaining = sentenceBuffer.slice(splitIndex);
+
+                                        if (toSpeak.trim()) {
+                                            if (!isAssistantSpeaking) setStatus('speaking');
+                                            speak(toSpeak);
+                                        }
+                                        sentenceBuffer = remaining;
+                                    }
+
+                                    // Emergency flush for huge chunks
+                                    else if (sentenceBuffer.length > 250) {
                                         if (!isAssistantSpeaking) setStatus('speaking');
-                                        speak(toSpeak);
+                                        speak(sentenceBuffer);
+                                        sentenceBuffer = "";
                                     }
-                                    sentenceBuffer = remaining;
+                                } else if (data.type === 'error') {
+                                    console.error("Stream error:", data.message);
+                                    throw new Error(data.message || "Stream error");
                                 }
-
-                                // Emergency flush for huge chunks
-                                else if (sentenceBuffer.length > 250) {
-                                    if (!isAssistantSpeaking) setStatus('speaking');
-                                    speak(sentenceBuffer);
-                                    sentenceBuffer = "";
-                                }
-                            } else if (data.type === 'error') {
-                                console.error("Stream error:", data.message);
+                            } catch (e) {
+                                console.warn("Error parsing stream line:", e);
                             }
-                        } catch (e) {
-                            console.warn("Error parsing stream line:", e);
                         }
                     }
                 }
-            }
 
-            // Flush remaining buffer at the end
-            if (sentenceBuffer.trim()) {
-                speak(sentenceBuffer);
+                // Flush remaining buffer at the end
+                if (sentenceBuffer.trim()) {
+                    speak(sentenceBuffer);
+                }
+            } finally {
+                // Always cancel the reader
+                try {
+                    reader.cancel();
+                } catch (e) {
+                    // Ignore cancel errors
+                }
             }
 
         } catch (err) {
-            console.error("Fetch error:", err);
-            speak("ขอโทษค่ะ เชื่อมต่อไม่ได้ในขณะนี้");
+            console.error("Voice query error:", err);
+            // Don't show error for aborted requests (user closed interface)
+            if ((err as Error).name !== 'AbortError') {
+                speak("ขอโทษค่ะ เชื่อมต่อไม่ได้ในขณะนี้");
+            }
         } finally {
+            // Clean up abort controller
+            abortControllerRef.current = null;
+            
             // After processing, maybe wait for speech to end then go to idle?
             // The useSpeechSynthesis hook 'isSpeaking' will handle the visual state
             // We can rely on user manually clicking mic again, or auto-restart?
