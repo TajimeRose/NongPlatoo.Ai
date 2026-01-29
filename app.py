@@ -8,7 +8,7 @@ import concurrent.futures
 import logging
 from concurrent.futures import TimeoutError
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, Response, send_from_directory, abort
+from flask import Flask, request, jsonify, Response, send_from_directory, abort, stream_with_context
 from flask_cors import CORS
 
 # Setup logging for debugging
@@ -111,7 +111,7 @@ CORS(app, resources={
     r"/api/*": {
         "origins": allowed_origins,
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
+        "allow_headers": ["Content-Type", "Authorization", "Cache-Control", "X-Requested-With", "Accept"],
         "supports_credentials": True,
         "max_age": 3600
     }
@@ -222,20 +222,23 @@ except Exception as e:
     # Fallback definitions to prevent NameError if imports fail. These will
     # raise a runtime error when used, making the failure explicit.
     logger.error(f"✗ Failed to import chat module: {e}")
+    # Capture exception string to avoid NameError (exception variables are deleted after except block)
+    error_msg = str(e)
     def chat_with_bot(message: str, user_id: str = "default") -> str:
-        raise RuntimeError(f"Chat module unavailable: {e}")
+        raise RuntimeError(f"Chat module unavailable: {error_msg}")
     
     def chat_with_bot_stream(message: str, user_id: str = "default"):
-        yield {"type": "error", "message": f"Chat module unavailable: {e}"}
+        yield {"type": "text", "text": f"⚠️ ระบบขัดข้อง: {error_msg}"}
+        yield {"type": "done"}
 
     def get_chat_response(message: str, user_id: str = "default") -> dict:
         return {
-            'response': '',
+            'response': f"⚠️ ระบบขัดข้อง: {error_msg}",
             'structured_data': [],
             'language': 'th',
             'intent': None,
             'source': 'error',
-            'error': f'Chat module unavailable: {e}',
+            'error': f'Chat module unavailable: {error_msg}',
         }
 
 try:
@@ -1203,6 +1206,7 @@ def post_message():
             'data_status': None,
             'duplicate': False,
         }), 500
+
 
 
 
