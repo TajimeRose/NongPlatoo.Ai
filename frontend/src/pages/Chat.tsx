@@ -114,7 +114,6 @@ const Chat = () => {
   const [capabilities, setCapabilities] = useState<BrowserCapabilities | null>(null);
   const [needsAudioUnlock, setNeedsAudioUnlock] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const recognitionRef = useRef<any>(null); // Use any for ref to avoid strict type issues
   const voiceTextRef = useRef("");
   const pendingRequestRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
