@@ -80,7 +80,7 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
                 setShowGreeting(true);
                 faceDetectionInitialRef.current = true;
 
-                const greetingText = "สวัสดีค่ะ มีอะไรให้ช่วยไหมคะ";
+                const greetingText = "สวัสดีค่ะ น้องปลาทูพร้อมให้ช่วยเหลือด้านการท่องเที่ยวค่ะ";
                 speak(greetingText);
 
                 greetingTimeoutRef.current = window.setTimeout(() => {
