@@ -353,7 +353,7 @@ const Chat = () => {
     }
   };
 
-  // Streaming version
+  // Streaming version - Optimized for perceived speed
   const handleSendWithStreaming = async (text?: string) => {
     const messageText = text || input;
     if (!messageText.trim()) return;
@@ -365,12 +365,10 @@ const Chat = () => {
       timestamp: createTimestamp(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // SPEED OPTIMIZATION 1: Instant feedback - clear input immediately
     setInput("");
-    setIsTyping(true);
-    setError(null);
-
-    // Create a placeholder for the assistant message
+    
+    // SPEED OPTIMIZATION 2: Add user message and typing indicator together
     const assistantId = `${Date.now()}-assistant`;
     const assistantMessage: Message = {
       id: assistantId,
@@ -379,7 +377,11 @@ const Chat = () => {
       timestamp: createTimestamp(),
       isStreaming: true,
     };
-    setMessages((prev) => [...prev, assistantMessage]);
+    
+    // Batch state updates for better performance
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    setIsTyping(true);
+    setError(null);
 
     const controller = new AbortController();
     pendingRequestRef.current = controller;
@@ -407,6 +409,8 @@ const Chat = () => {
       let fullText = "";
       let structuredData: StructuredPlace[] = [];
       let intentType = "";
+      let lastUpdateTime = Date.now();
+      const UPDATE_THROTTLE = 50; // Update UI every 50ms max for smooth streaming
 
       if (reader) {
         while (true) {
@@ -427,14 +431,19 @@ const Chat = () => {
                   structuredData = data.data;
                 } else if (data.type === "text") {
                   fullText += data.text;
-                  // Update message in real-time
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === assistantId
-                        ? { ...msg, content: fullText }
-                        : msg
-                    )
-                  );
+                  
+                  // SPEED OPTIMIZATION 3: Throttle UI updates for smooth streaming
+                  const now = Date.now();
+                  if (now - lastUpdateTime > UPDATE_THROTTLE || data.text.includes(" ")) {
+                    lastUpdateTime = now;
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantId
+                          ? { ...msg, content: fullText }
+                          : msg
+                      )
+                    );
+                  }
                 } else if (data.type === "done") {
                   // Finalize message with chat_log_id for feedback
                   setMessages((prev) =>
@@ -650,15 +659,16 @@ const Chat = () => {
             ))}
 
             {isTyping && (
-              <div className="flex gap-3">
+              <div className="flex gap-3 animate-slide-up">
                 <div className="w-9 h-9 bg-secondary rounded-full flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-secondary-foreground animate-pulse" />
                 </div>
-                <div className="bg-card shadow-soft border border-border rounded-2xl rounded-bl-sm px-4 py-3">
-                  <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse" />
-                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse animation-delay-100" />
-                    <span className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse animation-delay-200" />
+                <div className="bg-card shadow-soft border border-border rounded-2xl rounded-bl-sm px-4 py-3 min-w-[200px]">
+                  {/* SPEED OPTIMIZATION 4: Skeleton loading for better perceived performance */}
+                  <div className="space-y-2">
+                    <div className="h-3 bg-muted rounded w-3/4 skeleton-pulse"></div>
+                    <div className="h-3 bg-muted rounded w-full skeleton-pulse animation-delay-100"></div>
+                    <div className="h-3 bg-muted rounded w-5/6 skeleton-pulse animation-delay-200"></div>
                   </div>
                 </div>
               </div>

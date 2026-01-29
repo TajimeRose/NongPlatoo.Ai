@@ -62,13 +62,13 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
   // Robust image extraction handling string or array
   const extractImages = (imgs: unknown): string[] => {
     if (!imgs) return [];
-    if (Array.isArray(imgs)) return imgs.filter((u) => u).map((u) => String(u).trim());
+    if (Array.isArray(imgs)) return imgs.filter((u) => u && String(u).trim()).map((u) => String(u).trim());
     if (typeof imgs === 'string') {
       const trimmed = imgs.trim();
       if (trimmed.startsWith('[')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (Array.isArray(parsed)) return parsed.filter((u) => u).map((u) => String(u).trim());
+          if (Array.isArray(parsed)) return parsed.filter((u) => u && String(u).trim()).map((u) => String(u).trim());
         } catch (e) {
           console.warn('Failed to parse images JSON:', e);
         }
@@ -80,7 +80,7 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
   };
 
   const imageUrls = extractImages(place.images);
-  const primaryImage = imageUrls[0];
+  const primaryImage = imageUrls.length > 0 ? imageUrls[0] : null;
 
   // Use proxy for Google Maps images to avoid CORS issues
   const getProxiedImageUrl = (url: string): string => {
@@ -91,9 +91,10 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
     return url;
   };
 
-  const imageSrc = imageErrored || !primaryImage ? fallback : getProxiedImageUrl(primaryImage);
+  const imageSrc = !primaryImage || imageErrored ? fallback : getProxiedImageUrl(primaryImage);
 
   const handleImageError = () => {
+    console.warn(`Failed to load image: ${primaryImage}, using fallback`);
     setImageErrored(true);
   };
 
@@ -149,13 +150,13 @@ const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: 
   // Robust image extraction
   const extractImages = (imgs: unknown): string[] => {
     if (!imgs) return [];
-    if (Array.isArray(imgs)) return imgs.filter((u) => u).map((u) => String(u).trim());
+    if (Array.isArray(imgs)) return imgs.filter((u) => u && String(u).trim()).map((u) => String(u).trim());
     if (typeof imgs === 'string') {
       const trimmed = imgs.trim();
       if (trimmed.startsWith('[')) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (Array.isArray(parsed)) return parsed.filter((u) => u).map((u) => String(u).trim());
+          if (Array.isArray(parsed)) return parsed.filter((u) => u && String(u).trim()).map((u) => String(u).trim());
         } catch (e) {
           console.warn('Failed to parse images JSON:', e);
         }
@@ -166,7 +167,7 @@ const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: 
   };
 
   const imageUrls = extractImages(place.images);
-  const primaryImage = imageUrls[0];
+  const primaryImage = imageUrls.length > 0 ? imageUrls[0] : null;
 
   const getProxiedImageUrl = (url: string): string => {
     if (!url) return fallback;
@@ -176,16 +177,18 @@ const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: 
     return url;
   };
 
-  const imageSrc = imageErrored || !primaryImage ? fallback : getProxiedImageUrl(primaryImage);
+  // Always use fallback if no image or error, never leave img empty
+  const imageSrc = !primaryImage || imageErrored ? fallback : getProxiedImageUrl(primaryImage);
 
   const handleImageError = () => {
+    console.warn(`Failed to load image: ${primaryImage}, using fallback`);
     setImageErrored(true);
   };
 
   return (
     <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-lg">
       {/* Image Section */}
-      <div className="relative aspect-video overflow-hidden">
+      <div className="relative aspect-video overflow-hidden bg-muted">
         <img
           src={imageSrc}
           alt={name}
