@@ -1404,13 +1404,15 @@ class TravelChatbot:
         if not entries:
             return []
         
-        # If asking about a specific place, return up to 3 results
+        # Return appropriate number of results based on query type
+        # Specific place queries: 1-3 detailed results
+        # Suggestion/category queries: 4-6 results for browsing
         if query_type == "specific":
             max_count = min(limit, 3) if limit is not None else 3
         else:
-            # Category/general queries get 5-6 results
+            # Category/general queries get 4-6 results (more browsing)
             base_limit = limit if limit is not None else (self.display_limit or 6)
-            max_count = max(base_limit, 5)
+            max_count = max(base_limit, 4)  # Minimum 4 instead of 5
         
         trimmed: List[Dict[str, Any]] = []
         seen: set[str] = set()

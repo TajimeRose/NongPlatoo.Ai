@@ -59,13 +59,14 @@ export const BrowserCompatibilityWarning: React.FC<
 
     if (isMinimized && !isOpen) {
       return (
-        <div className="fixed bottom-4 right-4 z-50">
+        <div className="fixed bottom-4 right-4 z-40">
           <button
             onClick={() => setIsOpen(true)}
-            className="bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-amber-600 flex items-center gap-2"
+            className="bg-gray-100 text-gray-600 px-2 py-1 rounded-md shadow-sm hover:bg-gray-200 hover:text-gray-700 flex items-center gap-1.5 text-xs border border-gray-300 transition-colors"
+            title="View device compatibility info"
           >
-            <AlertTriangle className="w-4 h-4" />
-            Device Info
+            <Info className="w-3 h-3" />
+            <span className="hidden sm:inline">Device</span>
           </button>
         </div>
       );
