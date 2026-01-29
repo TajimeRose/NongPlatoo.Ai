@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
 import ChatMessage from "@/components/ChatMessage";
 import VoiceAIInterface from "@/components/VoiceAIInterface";
+import BrowserCompatibilityWarning from "@/components/BrowserCompatibilityWarning";
+import { detectBrowserCapabilities, BrowserCapabilities } from "@/utils/browserCapabilities";
 import { getPlaceById } from "@/data/places";
 
 // Web Speech API type declarations for TypeScript
@@ -74,10 +76,9 @@ import { getApiBase } from "@/lib/api";
 const API_BASE = getApiBase();
 
 const suggestedQuestions = [
-  "วัดบางกุ้งอยู่ที่ไหน",
+  "ดอนหอยหลอดไปยังไง",
   "แนะนำร้านอาหารอร่อยๆ",
-  "ที่เที่ยวสำหรับคู่รัก",
-  "จัดทริปหนึ่งวัน",
+  "คาเฟ่บรรยากาศดีๆ ในสมุทรสงคราม",
 ];
 
 const Chat = () => {
@@ -107,6 +108,8 @@ const Chat = () => {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [isVoiceAIOpen, setIsVoiceAIOpen] = useState(false);
+  const [capabilities, setCapabilities] = useState<BrowserCapabilities | null>(null);
+  const [needsAudioUnlock, setNeedsAudioUnlock] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const voiceTextRef = useRef("");
   const pendingRequestRef = useRef<AbortController | null>(null);
@@ -123,12 +126,23 @@ const Chat = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const windowWithSpeech = window as Window & {
+
+    // Detect browser capabilities
+    const caps = detectBrowserCapabilities();
+    setCapabilities(caps);
+    
+    // Check speech support
+    const windowWithSpeech = window as unknown as Window & {
       SpeechRecognition?: SpeechRecognitionStatic;
       webkitSpeechRecognition?: SpeechRecognitionStatic;
     };
     const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
-    setHasSpeechSupport(Boolean(SpeechRecognition));
+    setHasSpeechSupport(Boolean(SpeechRecognition) && caps.canUseSpeechRecognition);
+
+    // Check if iOS audio needs unlock (first time)
+    if (caps.recommendTTSGesture) {
+      setNeedsAudioUnlock(true);
+    }
 
     return () => {
       recognitionRef.current?.abort();
@@ -523,24 +537,36 @@ const Chat = () => {
 
   const startListening = async () => {
     if (typeof window === "undefined") return;
-    const windowWithSpeech = window as Window & {
+    
+    if (!capabilities || !capabilities.canUseSpeechRecognition) {
+      if (capabilities?.isIPad) {
+        setError("📱 Speech recognition is not available on iPad. Please use text input instead.");
+      } else if (capabilities?.isSafari) {
+        setError("⚠️ Speech recognition is not supported in Safari. Try Chrome or Edge.");
+      } else {
+        setError("This browser doesn't support speech recognition. Try Chrome or Edge.");
+      }
+      return;
+    }
+
+    const windowWithSpeech = window as unknown as Window & {
       SpeechRecognition?: SpeechRecognitionStatic;
       webkitSpeechRecognition?: SpeechRecognitionStatic;
     };
     const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError("เบราว์เซอร์นี้ไม่รองรับการรับเสียง กรุณาใช้ Chrome หรือ Edge");
+      setError("Speech recognition not available. Please use text input.");
       return;
     }
 
     recognitionRef.current?.abort();
 
-    const recognition = new SpeechRecognition();
+    const recognition = new SpeechRecognition() as any;
     recognition.lang = "th-TH";
     recognition.interimResults = true;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
-    recognitionRef.current = recognition;
+    recognitionRef.current = recognition as unknown as SpeechRecognitionInstance;
 
     let finalTranscript = "";
     voiceTextRef.current = "";
@@ -566,7 +592,15 @@ const Chat = () => {
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error("Voice recognition error", event.error);
       setIsListening(false);
-      setError("ไมโครโฟนมีปัญหา หรือไม่ได้เปิดสิทธิ์ กรุณาลองใหม่");
+      if (event.error === "network") {
+        setError("Network error. Please check your connection and try again.");
+      } else if (event.error === "no-speech") {
+        setError("No sound detected. Please speak clearly and try again.");
+      } else if (event.error === "not-allowed") {
+        setError("❌ Microphone permission denied. Check Settings > Safari > Microphone.");
+      } else {
+        setError("Microphone error. Please try again or use text input.");
+      }
     };
 
     recognition.onend = () => {
@@ -575,7 +609,7 @@ const Chat = () => {
       if (textToSend) {
         handleSend(textToSend);
       } else {
-        setError("ไม่ได้ยินเสียง หรือไม่มีข้อความส่ง กรุณาลองใหม่");
+        setError("No speech detected. Please try again.");
       }
     };
 
@@ -707,27 +741,72 @@ const Chat = () => {
       <div className="border-t border-border bg-card sticky bottom-0">
         <div className="container mx-auto px-4 py-4 max-w-3xl">
           <div className="flex gap-3 items-center">
-            <Button
-              type="button"
-              variant={isListening ? "destructive" : "secondary"}
-              size="icon"
-              onClick={isListening ? stopListening : startListening}
-              disabled={!hasSpeechSupport || isTyping}
-              className={isListening ? "animate-pulse shadow-elevated" : ""}
-            >
-              <Mic className="w-5 h-5" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => setIsVoiceAIOpen(true)}
-              disabled={isTyping}
-              className="border-cyan-500/50 text-cyan-600 hover:bg-cyan-500/10 hover:text-cyan-500"
-              title="Voice AI Assistant"
-            >
-              <Radio className="w-5 h-5" />
-            </Button>
+            {/* Microphone Button - only show if supported */}
+            {capabilities && (
+              <>
+                {capabilities.canUseSpeechRecognition ? (
+                  <Button
+                    type="button"
+                    variant={isListening ? "destructive" : "secondary"}
+                    size="icon"
+                    onClick={isListening ? stopListening : startListening}
+                    disabled={isTyping}
+                    className={isListening ? "animate-pulse shadow-elevated" : ""}
+                    title="Speak your question"
+                  >
+                    <Mic className="w-5 h-5" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    disabled={true}
+                    className="opacity-50 cursor-not-allowed"
+                    title={
+                      capabilities.isIPad
+                        ? "Speech not supported on iPad"
+                        : capabilities.isSafari
+                          ? "Speech not supported in Safari"
+                          : "Speech not supported in this browser"
+                    }
+                  >
+                    <Mic className="w-5 h-5" />
+                  </Button>
+                )}
+
+                {/* Voice AI Button - only show if speech & camera supported */}
+                {capabilities.canUseVoiceAI ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setIsVoiceAIOpen(true)}
+                    disabled={isTyping}
+                    className="border-cyan-500/50 text-cyan-600 hover:bg-cyan-500/10 hover:text-cyan-500"
+                    title="Voice AI Assistant"
+                  >
+                    <Radio className="w-5 h-5" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    disabled={true}
+                    className="opacity-50 cursor-not-allowed border-gray-300"
+                    title={
+                      capabilities.isIPad
+                        ? "Voice AI not supported on iPad"
+                        : "Voice AI requires microphone access"
+                    }
+                  >
+                    <Radio className="w-5 h-5" />
+                  </Button>
+                )}
+              </>
+            )}
+
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -767,11 +846,29 @@ const Chat = () => {
               </Button>
             )}
           </div>
-          {!hasSpeechSupport && (
-            <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              เบราว์เซอร์นี้ไม่รองรับการสั่งงานด้วยเสียง ลองใช้ Chrome หรือ Edge
-            </p>
+          {capabilities && (
+            <>
+              {needsAudioUnlock && !capabilities.isAndroid && (
+                <p className="mt-2 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded inline-flex items-center gap-1 border border-amber-200">
+                  <AlertCircle className="w-3 h-3" />
+                  📢 Tap to enable audio playback on first message
+                </p>
+              )}
+
+              {capabilities.isIPad && !capabilities.canUseSpeechRecognition && (
+                <p className="mt-2 text-xs text-blue-700 bg-blue-50 px-3 py-2 rounded inline-flex items-center gap-1 border border-blue-200">
+                  <AlertCircle className="w-3 h-3" />
+                  📱 iPad: Text chat & AI work great! Speech input not available on this device.
+                </p>
+              )}
+
+              {!hasSpeechSupport && !capabilities.isIPad && (
+                <p className="mt-2 text-xs text-muted-foreground inline-flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Speech not available in this browser. Try Chrome, Edge, or Safari.
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -780,8 +877,10 @@ const Chat = () => {
       <VoiceAIInterface
         isOpen={isVoiceAIOpen}
         onClose={() => setIsVoiceAIOpen(false)}
-        onSpeak={playTextToSpeech}
       />
+
+      {/* Browser Compatibility Warning */}
+      <BrowserCompatibilityWarning minimized={true} />
     </div>
   );
 };
