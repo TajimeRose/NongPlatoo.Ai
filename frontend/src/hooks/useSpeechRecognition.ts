@@ -216,6 +216,9 @@ export const useSpeechRecognition = ({
                 } else if (event.error === 'not-allowed') {
                     setError('กรุณาอนุญาตการเข้าถึงไมโครโฟน');
                     setIsListening(false);
+                } else if (event.error === 'no-speech') {
+                    // Ignore no-speech error (just silence)
+                    console.log('[SpeechRecognition] No speech detected (silence)');
                 } else if (event.error !== 'aborted') {
                     setError(`เกิดข้อผิดพลาด: ${event.error}`);
                 }

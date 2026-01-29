@@ -503,8 +503,8 @@ def tts_endpoint():
             # Collapse multiple spaces
             text = re.sub(r'\s+', ' ', text).strip()
             
-        # Default to Premwadee (female, thai) or Niwat (male, thai)
-        voice = "th-TH-PremwadeeNeural" 
+        # Switch to Achara (Younger, brighter Thai female voice)
+        voice = "th-TH-AcharaNeural" 
         
         if not text:
             return jsonify({
@@ -518,7 +518,9 @@ def tts_endpoint():
             
         # Run edge-tts asynchronously
         async def _generate_audio():
-            communicate = edge_tts.Communicate(text, voice)
+            # Adjust pitch and rate to make it sound younger/fresher
+            # +10% rate for energetic/bright feel
+            communicate = edge_tts.Communicate(text, voice, rate="+10%")
             await communicate.save(temp_filename)
         
         # Use asyncio.run which is now safe thanks to nest_asyncio
