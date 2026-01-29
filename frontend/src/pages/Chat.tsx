@@ -79,9 +79,10 @@ import { getApiBase } from "@/lib/api";
 const API_BASE = getApiBase();
 
 const suggestedQuestions = [
-  "ดอนหอยหลอดไปยังไง",
-  "แนะนำร้านอาหารอร่อยๆ",
-  "คาเฟ่บรรยากาศดีๆ ในสมุทรสงคราม",
+  "ดอนหอยหลอด",
+  "อัมพวา",
+  "คาเฟ่",
+  "ร้านอาหาร",
 ];
 
 const Chat = () => {

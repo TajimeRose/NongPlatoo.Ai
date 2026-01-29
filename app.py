@@ -1239,6 +1239,95 @@ def get_all_places():
         }), 500
 
 
+@app.route('/api/places/<place_id>', methods=['GET'])
+def get_place_by_id(place_id: str):
+    """Get a single place by ID for the Place detail page."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            place = session.query(Place).filter(Place.id == place_id).first()
+            if not place:
+                return jsonify({
+                    'success': False,
+                    'error': 'Place not found'
+                }), 404
+
+            return jsonify({
+                'success': True,
+                'place': place.to_dict()
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/places/{place_id} failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/filters/districts', methods=['GET'])
+def get_districts():
+    """Get all unique districts from the places table."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            # Get unique districts from the city column
+            districts = session.query(Place.city).distinct().filter(Place.city.isnot(None)).all()
+            district_list = [row[0] for row in districts if row[0]]
+            
+            return jsonify({
+                'success': True,
+                'districts': sorted(district_list)
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/filters/districts failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'districts': []
+        }), 500
+
+
+@app.route('/api/filters/categories', methods=['GET'])
+def get_categories():
+    """Get all unique categories from the places table."""
+    try:
+        from backend.db import get_session_factory, Place
+
+        session_factory = get_session_factory()
+        session = session_factory()
+
+        try:
+            # Get unique categories
+            categories = session.query(Place.category).distinct().filter(Place.category.isnot(None)).all()
+            category_list = [row[0] for row in categories if row[0]]
+            
+            return jsonify({
+                'success': True,
+                'categories': sorted(category_list)
+            })
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"[ERROR] /api/filters/categories failed: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'categories': []
+        }), 500
+
+
 @app.route('/api/feedback', methods=['POST'])
 def submit_feedback():
     """Submit like/dislike feedback for an AI response."""

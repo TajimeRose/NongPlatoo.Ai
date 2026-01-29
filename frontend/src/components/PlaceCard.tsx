@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { getPlaceViews, incrementPlaceViews, formatViewCount } from "@/utils/viewCounter";
+import { getApiBase } from "@/lib/api";
+import fallbackImage from "@/assets/hero-floating-market.jpg";
 
 interface PlaceCardProps {
   id: string;
@@ -11,7 +13,7 @@ interface PlaceCardProps {
   nameTh: string;
   location: string;
   image: string;
-  rating: number;
+  rating: number | null | undefined;
   tags: string[];
   isOpen?: boolean;
   className?: string;
@@ -29,6 +31,8 @@ const PlaceCard = ({
   className,
 }: PlaceCardProps) => {
   const [viewCount, setViewCount] = useState(0);
+  const [imageErrored, setImageErrored] = useState(false);
+  const API_BASE = getApiBase();
 
   useEffect(() => {
     // Load initial view count
@@ -41,6 +45,56 @@ const PlaceCard = ({
     setViewCount(newCount);
   };
 
+  const getProxiedImageUrl = (url: string): string => {
+    if (!url) return fallbackImage;
+    const allowedPrefixes = [
+      "https://lh3.googleusercontent.com",
+      "https://lh5.googleusercontent.com",
+      "https://maps.googleapis.com",
+      "https://streetviewpixels-pa.googleapis.com",
+    ];
+    if (allowedPrefixes.some((prefix) => url.startsWith(prefix))) {
+      return `${API_BASE}/api/image-proxy?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const normalizeImageUrl = (rawUrl: string | null | undefined): string => {
+    if (!rawUrl) return fallbackImage;
+    let url = String(rawUrl).trim();
+    if (!url) return fallbackImage;
+
+    if (url.startsWith("data:")) return url;
+    if (url.startsWith("//")) url = `https:${url}`;
+
+    // Normalize Windows paths to URL-style
+    if (/^[a-zA-Z]:\\/.test(url) || url.includes("\\")) {
+      url = url.replace(/\\/g, "/");
+    }
+
+    const lower = url.toLowerCase();
+    const backendStaticIndex = lower.lastIndexOf("/backend/static/");
+    if (backendStaticIndex !== -1) {
+      url = url.slice(backendStaticIndex + "/backend/static/".length);
+    }
+
+    const staticIndex = lower.lastIndexOf("/static/");
+    if (staticIndex !== -1) {
+      url = url.slice(staticIndex + "/static/".length);
+    }
+
+    const publicIndex = lower.lastIndexOf("/public/");
+    if (publicIndex !== -1) {
+      url = url.slice(publicIndex + "/public/".length);
+    }
+
+    if (/^https?:\/\//i.test(url)) return getProxiedImageUrl(url);
+    if (url.startsWith("/")) return `${API_BASE}${url}`;
+    return `${API_BASE}/${url}`;
+  };
+
+  const imageSrc = imageErrored ? fallbackImage : normalizeImageUrl(image);
+
   return (
     <Link
       to={`/places/${id}`}
@@ -51,9 +105,11 @@ const PlaceCard = ({
         {/* Image */}
         <div className="relative aspect-[4/3] overflow-hidden">
           <img
-            src={image}
-            alt={nameTh}
+            src={imageSrc}
+            alt={nameTh || name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            onError={() => setImageErrored(true)}
           />
 
           {/* Status Badge */}
@@ -72,10 +128,12 @@ const PlaceCard = ({
 
           {/* Rating */}
           <div className="absolute top-3 right-3 flex flex-col gap-2">
-            <div className="flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-1 rounded-full">
-              <Star className="w-3.5 h-3.5 fill-golden text-golden" />
-              <span className="text-sm font-medium text-foreground">{rating.toFixed(1)}</span>
-            </div>
+            {rating !== null && rating !== undefined && (
+              <div className="flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-1 rounded-full">
+                <Star className="w-3.5 h-3.5 fill-golden text-golden" />
+                <span className="text-sm font-medium text-foreground">{rating.toFixed(1)}</span>
+              </div>
+            )}
             {/* View Count */}
             <div className="flex items-center gap-1 bg-card/90 backdrop-blur-sm px-2 py-1 rounded-full">
               <Eye className="w-3.5 h-3.5 text-primary" />

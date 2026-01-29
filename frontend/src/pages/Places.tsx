@@ -1,16 +1,42 @@
-import { useState, useMemo } from "react";
-import { Search, Filter, X } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, Filter, X, Loader } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Navbar from "@/components/Navbar";
 import PlaceCard from "@/components/PlaceCard";
-import { places, filterPlaces } from "@/data/places";
 import { usePlaceFilters } from "@/hooks/usePlaceFilters";
-import { DISTRICTS, CATEGORIES, WATERMARK_CONFIG } from "@/data/placesConstants";
+import { getApiBase } from "@/lib/api";
+
+interface Place {
+  id: string;
+  name: string;
+  nameTh?: string;
+  description: string;
+  descriptionTh?: string;
+  location?: string;
+  address?: string;
+  district?: string;
+  category: string;
+  image?: string;
+  images?: string[];
+  rating: number | null | undefined;
+  tags: string[];
+  openTime?: string;
+  closeTime?: string;
+  isOpen?: boolean;
+  googleMapsUrl?: string;
+  addressTh?: string;
+  [key: string]: any;
+}
 
 const Places = () => {
   const [showFilters, setShowFilters] = useState(false);
+  const [allPlaces, setAllPlaces] = useState<Place[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dbDistricts, setDbDistricts] = useState<Array<{ value: string; label: string }>>([]);
+  const [dbCategories, setDbCategories] = useState<Array<{ value: string; label: string }>>([]);
 
   const {
     search,
@@ -23,28 +49,145 @@ const Places = () => {
     hasActiveFilters,
   } = usePlaceFilters();
 
+  // Fetch districts and categories from API
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const API_BASE = getApiBase();
+        
+        const [districtRes, categoryRes] = await Promise.all([
+          fetch(`${API_BASE}/api/filters/districts`),
+          fetch(`${API_BASE}/api/filters/categories`)
+        ]);
+
+        if (districtRes.ok) {
+          const data = await districtRes.json();
+          if (data.success && Array.isArray(data.districts)) {
+            setDbDistricts(
+              data.districts.map((d: string) => ({
+                value: d,
+                label: d
+              }))
+            );
+          }
+        }
+
+        if (categoryRes.ok) {
+          const data = await categoryRes.json();
+          if (data.success && Array.isArray(data.categories)) {
+            setDbCategories(
+              data.categories.map((c: string) => ({
+                value: c,
+                label: c
+              }))
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching filters:", err);
+      }
+    };
+
+    fetchFilters();
+  }, []);
+
+  // Fetch places from database
+  useEffect(() => {
+    const fetchPlaces = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        const API_BASE = getApiBase();
+        const response = await fetch(`${API_BASE}/api/places`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && Array.isArray(data.places)) {
+          // Ensure all places have required fields with defaults
+          const processedPlaces = data.places.map((place: any) => {
+            // Get the first image from images array or use image field
+            let imageUrl = '/placeholder.jpg';
+            if (Array.isArray(place.images) && place.images.length > 0) {
+              imageUrl = place.images[0];
+            } else if (place.image) {
+              imageUrl = place.image;
+            } else if (place.image_url) {
+              imageUrl = place.image_url;
+            }
+
+            return {
+              id: place.id || '',
+              name: place.name || 'Unknown',
+              nameTh: place.name || '', // Use name if nameTh not available
+              description: place.description || '',
+              descriptionTh: place.description || '',
+              location: place.address || place.location || '',
+              district: place.city || place.district || '',
+              category: place.category || place.type?.[0] || '',
+              image: imageUrl,
+              images: Array.isArray(place.images) ? place.images : [imageUrl],
+              rating: place.rating ?? null,
+              tags: Array.isArray(place.tags) ? place.tags : (place.type || []),
+              openTime: place.openTime || place.opening_hours || '',
+              closeTime: place.closeTime || '',
+              isOpen: place.isOpen !== false,
+              googleMapsUrl: place.googleMapsUrl || '',
+              address: place.address || '',
+              addressTh: place.addressTh || '',
+            };
+          });
+          setAllPlaces(processedPlaces);
+        } else {
+          throw new Error("Invalid response format");
+        }
+      } catch (err) {
+        console.error("Error fetching places:", err);
+        setError(err instanceof Error ? err.message : "Failed to load places");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPlaces();
+  }, []);
+
+  // Filter places based on search and selected filters
   const filteredPlaces = useMemo(() => {
-    return filterPlaces(
-      selectedDistrict || undefined,
-      selectedCategory || undefined,
-      search || undefined
-    );
-  }, [selectedDistrict, selectedCategory, search]);
+    return allPlaces.filter((place) => {
+      // Filter by district
+      if (selectedDistrict && place.district !== selectedDistrict) {
+        return false;
+      }
+
+      // Filter by category
+      if (selectedCategory && place.category !== selectedCategory) {
+        return false;
+      }
+
+      // Filter by search query
+      if (search) {
+        const searchLower = search.toLowerCase();
+        return (
+          place.name.toLowerCase().includes(searchLower) ||
+          place.nameTh.includes(search) ||
+          place.description.toLowerCase().includes(searchLower) ||
+          place.descriptionTh.includes(search) ||
+          place.tags.some((tag) => tag.toLowerCase().includes(searchLower))
+        );
+      }
+
+      return true;
+    });
+  }, [allPlaces, selectedDistrict, selectedCategory, search]);
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-
-      {/* Work in Progress Watermark - Top Layer */}
-      <div className={WATERMARK_CONFIG.position}>
-        <div className="bg-amber-400 dark:bg-amber-600 text-amber-900 dark:text-amber-50 px-4 py-2 rounded-lg shadow-lg border-2 border-amber-500 dark:border-amber-400 rotate-12 font-bold text-sm flex items-center gap-2">
-          <span className="text-lg">{WATERMARK_CONFIG.icon}</span>
-          <div>
-            <div>{WATERMARK_CONFIG.text.main}</div>
-            <div className="text-xs">{WATERMARK_CONFIG.text.sub}</div>
-          </div>
-        </div>
-      </div>
 
       {/* Header */}
       <header className="pt-24 pb-8 bg-gradient-sky">
@@ -53,7 +196,7 @@ const Places = () => {
             สถานที่ท่องเที่ยว
           </h1>
           <p className="text-muted-foreground text-lg">
-            Explore Places — {places.length} destinations to discover
+            Explore Places — {filteredPlaces.length} destinations to discover
           </p>
         </div>
       </header>
@@ -112,7 +255,7 @@ const Places = () => {
                 อำเภอ (District)
               </p>
               <div className="flex flex-wrap gap-2">
-                {DISTRICTS.map((district) => (
+                {dbDistricts.map((district) => (
                   <Button
                     key={district.value}
                     variant={
@@ -123,9 +266,6 @@ const Places = () => {
                     className="rounded-full"
                   >
                     {district.label}
-                    <span className="text-xs opacity-70 ml-1">
-                      ({district.labelEn})
-                    </span>
                   </Button>
                 ))}
               </div>
@@ -137,7 +277,7 @@ const Places = () => {
                 ประเภท (Category)
               </p>
               <div className="flex flex-wrap gap-2">
-                {CATEGORIES.map((category) => (
+                {dbCategories.map((category) => (
                   <Button
                     key={category.value}
                     variant={
@@ -148,9 +288,6 @@ const Places = () => {
                     className="rounded-full"
                   >
                     {category.label}
-                    <span className="text-xs opacity-70 ml-1">
-                      ({category.labelEn})
-                    </span>
                   </Button>
                 ))}
               </div>
@@ -162,29 +299,51 @@ const Places = () => {
       {/* Results */}
       <main className="py-8">
         <div className="container mx-auto px-4">
-          <p className="text-muted-foreground mb-6">
-            พบ {filteredPlaces.length} สถานที่ (Found {filteredPlaces.length}{" "}
-            places)
-          </p>
-
-          {filteredPlaces.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPlaces.map((place, index) => (
-                <PlaceCard
-                  key={place.id}
-                  id={place.id}
-                  name={place.name}
-                  nameTh={place.nameTh}
-                  location={place.location}
-                  image={place.image}
-                  rating={place.rating}
-                  tags={place.tags}
-                  isOpen={place.isOpen}
-                  className={`animate-slide-up animation-delay-${(index % 3) * 100
-                    }`}
-                />
-              ))}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader className="w-8 h-8 animate-spin text-primary mr-2" />
+              <p className="text-muted-foreground">Loading places...</p>
             </div>
+          ) : error ? (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Search className="w-8 h-8 text-destructive" />
+              </div>
+              <h3 className="font-display text-xl font-semibold text-foreground mb-2">
+                Error Loading Places
+              </h3>
+              <p className="text-muted-foreground mb-4">{error}</p>
+              <Button
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : filteredPlaces.length > 0 ? (
+            <>
+              <p className="text-muted-foreground mb-6">
+                พบ {filteredPlaces.length} สถานที่ (Found {filteredPlaces.length}{" "}
+                places)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredPlaces.map((place, index) => (
+                  <PlaceCard
+                    key={place.id}
+                    id={place.id}
+                    name={place.name}
+                    nameTh={place.nameTh}
+                    location={place.location}
+                    image={place.image}
+                    rating={place.rating}
+                    tags={place.tags}
+                    isOpen={place.isOpen}
+                    className={`animate-slide-up animation-delay-${(index % 3) * 100
+                      }`}
+                  />
+                ))}
+              </div>
+            </>
           ) : (
             <div className="text-center py-20">
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
