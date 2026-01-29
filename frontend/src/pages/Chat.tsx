@@ -139,8 +139,6 @@ const Chat = () => {
       SpeechRecognition?: SpeechRecognitionStatic;
       webkitSpeechRecognition?: SpeechRecognitionStatic;
     };
-    // Cast window to any to bypass strict type checking for non-standard APIs
-    const windowWithSpeech = window as any;
     const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     setHasSpeechSupport(Boolean(SpeechRecognition) && caps.canUseSpeechRecognition);
 
@@ -558,8 +556,6 @@ const Chat = () => {
       SpeechRecognition?: SpeechRecognitionStatic;
       webkitSpeechRecognition?: SpeechRecognitionStatic;
     };
-    // Cast window to any to bypass strict type checking for non-standard APIs
-    const windowWithSpeech = window as any;
     const SpeechRecognition = windowWithSpeech.SpeechRecognition || windowWithSpeech.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       setError("Speech recognition not available. Please use text input.");
