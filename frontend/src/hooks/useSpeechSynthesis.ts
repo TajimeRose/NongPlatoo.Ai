@@ -72,9 +72,7 @@ export const useSpeechSynthesis = () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        text: text,
-                        voice: 'shimmer', // female voice
-                        speed: 1.25
+                        text: text
                     }),
                     signal: signal
                 });
