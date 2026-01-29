@@ -58,17 +58,13 @@ const VoiceAIInterface = ({ isOpen, onClose }: VoiceAIInterfaceProps) => {
             return;
         }
 
-        // Auto-start listening immediately on mount (if ready)
-        // We delay slightly to allow UI transition
-        const timer = setTimeout(() => {
-            if (!isListening && !isAssistantSpeaking && !processingRef.current) {
-                console.log("[VoiceAI] Auto-starting listening...");
-                startListening();
-            }
-        }, 500);
-
-        return () => clearTimeout(timer);
-    }, [isOpen, isListening, isAssistantSpeaking, startListening, cancelSpeech, stopListening]);
+        // Auto-start listening immediately on mount (iPad friendly)
+        // Removing delay ensures we stay within the "User Gesture" context
+        if (!isListening && !isAssistantSpeaking && !processingRef.current) {
+            console.log("[VoiceAI] Auto-starting listening (Immediate)...");
+            startListening();
+        }
+    }, [isOpen, startListening, cancelSpeech, stopListening]); // Removed unstable deps to prevent loops
 
     // Separate effect for face detection greeting (optional feature)
     useEffect(() => {
