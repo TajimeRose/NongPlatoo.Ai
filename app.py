@@ -103,15 +103,16 @@ from backend.visit_counter import get_counts, increment_visit, normalize_path
 app = Flask(__name__)
 
 # Configure CORS with security restrictions
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:8000,http://127.0.0.1:8080").split(",")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:8000,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:3000,http://127.0.0.1:8000,http://127.0.0.1:8080").split(",")
 # Clean up whitespace from split
 allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
 
 CORS(app, resources={
     r"/api/*": {
         "origins": allowed_origins,
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
+        "methods": ["GET", "POST", "OPTIONS", "PUT", "DELETE"],
+        "allow_headers": ["Content-Type", "Authorization", "Cache-Control", "Pragma", "Accept", "Accept-Language", "Accept-Encoding", "Origin", "X-Requested-With"],
+        "expose_headers": ["Content-Type", "Content-Length"],
         "supports_credentials": True,
         "max_age": 3600
     }
@@ -192,6 +193,40 @@ def get_chatbot():
 
 # ===== End iOS Fix =====
 
+# ===== Input Validation and Security =====
+def validate_message_input(message: str) -> tuple[bool, str]:
+    """Validate user message input"""
+    if not message or not isinstance(message, str):
+        return False, "Message must be a non-empty string"
+    
+    message = message.strip()
+    if not message:
+        return False, "Message cannot be empty"
+    
+    if len(message) > 5000:
+        return False, "Message too long (max 5000 characters)"
+    
+    if len(message) < 2:
+        return False, "Message too short (min 2 characters)"
+    
+    return True, ""
+
+def sanitize_user_id(user_id: str) -> str:
+    """Sanitize user ID to prevent injection attacks"""
+    if not user_id or not isinstance(user_id, str):
+        return "default"
+    
+    # Remove any non-alphanumeric characters except hyphens and underscores
+    import re
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', user_id)
+    
+    if not sanitized or len(sanitized) > 100:
+        return "default"
+    
+    return sanitized
+
+# ===== End Input Validation =====
+
 # JWT Setup for authentication
 try:
     from flask_jwt_extended import JWTManager
@@ -247,8 +282,7 @@ except Exception as db_import_error:
     logger.error(f"✗ Failed to import db module: {db_import_error}")
     _db_error_msg = str(db_import_error)  # Capture error message
     def init_db() -> None:
-        logger.error(f"[CRITICAL] init_db unavailable due to import error: {_db_error_msg}")
-        print(f"[CRITICAL] init_db unavailable: {_db_error_msg}")
+        logger.critical(f"init_db unavailable due to import error: {_db_error_msg}")
 
 FIREBASE_ENV_MAP = {
     'apiKey': 'FIREBASE_API_KEY',
@@ -311,6 +345,15 @@ def api_query():
         
         user_message = data['message']
         user_id = data.get('user_id', 'default')
+        
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
+            return jsonify({'error': error_msg}), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
+        
         result = get_chat_response(user_message, user_id)
         
         return jsonify({
@@ -598,6 +641,18 @@ def post_message_stream():
         user_id = data.get('user_id', 'default')
         request_id = data.get('request_id') or str(uuid.uuid4())
         
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'error': True,
+                'message': error_msg
+            }), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
+        
         # Try to get real user_id from JWT token if logged in
         try:
             from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
@@ -607,13 +662,6 @@ def post_message_stream():
                 user_id = str(jwt_user_id)
         except Exception:
             pass  # Not authenticated, use default
-        
-        if not user_message:
-            return jsonify({
-                'success': False,
-                'error': True,
-                'message': 'Text is required'
-            }), 400
         
         # Check for duplicate/retry requests (same request_id within 5 seconds)
         if request_id in _ACTIVE_REQUESTS:
@@ -1117,12 +1165,17 @@ def post_message():
         user_message = data.get('text') or data.get('message') or ''
         user_id = data.get('user_id', 'default')
 
-        if not user_message:
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_message_input(user_message)
+        if not is_valid:
             return jsonify({
                 'success': False,
                 'error': True,
-                'message': 'Text is required'
+                'message': error_msg
             }), 400
+        
+        user_id = sanitize_user_id(user_id)
+        user_message = user_message.strip()
 
         # ----- เรียก get_chat_response แบบมี timeout -----
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -1380,8 +1433,8 @@ def submit_feedback():
             session.close()
             
     except Exception as e:
-        print(f"[ERROR] /api/feedback failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Feedback endpoint error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/api/feedback/stats', methods=['GET'])
@@ -1445,8 +1498,8 @@ def get_feedback_stats():
             session.close()
             
     except Exception as e:
-        print(f"[ERROR] /api/feedback/stats failed: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Feedback stats endpoint error: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 
 @app.route('/firebase_config.js')
@@ -1585,14 +1638,17 @@ def image_proxy():
         )
 
 if __name__ == '__main__':
-    print("Samut Songkhram Travel Assistant")
+    logger.info("="*60)
+    logger.info("Samut Songkhram Travel Assistant - Starting")
+    logger.info("="*60)
+    
     try:
         logger.info("Initializing database...")
         init_db()
         logger.info("✓ Database initialized successfully")
     except Exception as e:
-        logger.error(f"[ERROR] Database initialization failed: {e}", exc_info=True)
-        print(f"[WARN] Database initialization failed: {e}")
+        logger.error(f"Database initialization failed: {e}", exc_info=True)
+        logger.warning("Continuing without full database functionality")
     
     # Preload semantic model to avoid first-request timeout (~29s delay)
     def preload_semantic_model():
@@ -1610,27 +1666,21 @@ if __name__ == '__main__':
         import threading
         preload_thread = threading.Thread(target=preload_semantic_model, daemon=True)
         preload_thread.start()
-        # Don't wait - let it load in background while server starts
+        logger.info("Started semantic model preload thread")
     except Exception as e:
         logger.warning(f"Could not start preload thread: {e}")
     
-    logger.info("[INFO] Starting Flask server on 0.0.0.0:8000...")
-    print("[INFO] Running app...")
-    print("[DEBUG] About to call app.run()...")
-    import sys
-    sys.stdout.flush()
+    logger.info("Starting Flask server on 0.0.0.0:8000")
+    
     try:
-        print("[DEBUG] Calling app.run() now...")
-        sys.stdout.flush()
         app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False, threaded=True)
-        print("[DEBUG] app.run() returned")
     except KeyboardInterrupt:
-        print("\n[INFO] Server stopped by user")
+        logger.info("Server stopped by user (KeyboardInterrupt)")
     except Exception as e:
-        logger.error(f"Flask server error: {e}", exc_info=True)
-        print(f"[ERROR] Flask crashed: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.critical(f"Flask server crashed: {e}", exc_info=True)
+        raise
     finally:
-        print("[DEBUG] Finally block reached")
+        logger.info("="*60)
+        logger.info("Application shutdown complete")
+        logger.info("="*60)
 

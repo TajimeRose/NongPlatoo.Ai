@@ -194,6 +194,9 @@ export const getBrowserInfo = (): string => {
  * Log detailed capability information to console
  */
 export const logBrowserCapabilities = (): void => {
+  // Only log in development mode
+  if (!import.meta.env.DEV) return;
+  
   const capabilities = detectBrowserCapabilities();
   
   console.group("🌐 Browser Capabilities");
