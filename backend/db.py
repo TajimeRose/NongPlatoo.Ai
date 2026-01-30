@@ -97,6 +97,7 @@ class Place(Base):
     attraction_type = Column(String)
     # Vector column for semantic search (pgvector) - matches database column name
     description_embedding = Column(Vector(384), nullable=True) if Vector else Column(Text, nullable=True)
+    google_maps_link = Column(String, nullable=True)
 
     def to_dict(self) -> Dict[str, object]:
         """Convert to dict with chatbot-compatible field names and defaults."""
@@ -153,6 +154,11 @@ class Place(Base):
             except (TypeError, ValueError):
                 return None
 
+        # Build google maps link if missing but coordinates exist
+        maps_link = self.google_maps_link
+        if not maps_link and self.latitude is not None and self.longitude is not None:
+            maps_link = f"https://www.google.com/maps/search/?api=1&query={self.latitude},{self.longitude}"
+
         return {
             "id": str(self.id),
             "name": self.name,
@@ -178,6 +184,7 @@ class Place(Base):
             "images": images,
             "attraction_type": self.attraction_type,
             "source": "database",
+            "google_maps_link": maps_link,
         }
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
