@@ -19,7 +19,9 @@ from .db import (
     search_places_hybrid,
     search_main_attractions, 
     get_attractions_by_type, 
-    search_places_near_location
+    search_places_near_location,
+    ChatLog,
+    get_session_factory
 )
 try:
     from .services.database import get_db_service
@@ -1853,6 +1855,45 @@ class TravelChatbot:
             }
         }
 
+    def _save_chat_log(self, user_message: str, ai_response: str, user_id: str, source: str) -> Optional[int]:
+        """Save chat interaction to database for feedback tracking.
+        
+        Args:
+            user_message: The user's input message
+            ai_response: The AI's response text
+            user_id: User identifier (or 'default'/'anonymous')
+            source: Source of response ('gpt', 'greeting', 'empty_query', 'simple', etc.)
+            
+        Returns:
+            The chat_log_id if successful, None otherwise
+        """
+        try:
+            session_factory = get_session_factory()
+            with session_factory() as session:
+                # user_id in database is INTEGER, so pass None for string user_ids
+                db_user_id = None  # Always pass None since user_id is a string parameter
+                
+                chat_log = ChatLog(
+                    user_id=db_user_id,  # Database column is INTEGER
+                    user_message=user_message[:4000] if user_message else "",  # Limit to 4000 chars
+                    ai_response=ai_response[:4000] if ai_response else "",      # Limit to 4000 chars
+                    model_name=getattr(self.gpt_service, 'model_name', 'unknown') if self.gpt_service else source,
+                    tokens_used=None,  # Could calculate from GPT response if needed
+                    prompt_tokens=None,
+                    latency_ms=None,
+                )
+                session.add(chat_log)
+                session.commit()
+                session.refresh(chat_log)  # Refresh to ensure ID is populated
+                chat_log_id = chat_log.id
+                logger.info(f"[OK] Chat log saved with ID: {chat_log_id}")
+                return chat_log_id  # type: ignore[return-value]
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to save chat log: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def get_response(self, user_message: str, user_id: str = "default") -> Dict[str, Any]:
         language = self._detect_language(user_message)
         self._refresh_settings()
@@ -2207,6 +2248,10 @@ class TravelChatbot:
         trimmed_query = user_message.strip()
         normalized_query = trimmed_query.lower()
         
+        # Collect full response text for database logging
+        full_response_text = ""
+        chat_log_id = None
+        
         # Handle greetings
         greetings_th = ("สวัสดี", "หวัดดี", "ดีจ้า", "สวัสดีค่ะ", "สวัสดีครับ")
         greetings_en = ("hello", "hi", "hey", "greetings")
@@ -2222,8 +2267,15 @@ class TravelChatbot:
                     "en",
                     "Hello! I'm Nong Pla Too, happy to help plan your Samut Songkhram adventures!"
                 )
+            full_response_text = greeting_text
+            # Save to database
+            try:
+                chat_log_id = self._save_chat_log(user_message, full_response_text, user_id, "greeting")
+            except Exception as e:
+                logger.warning(f"Failed to save chat log: {e}")
+            
             yield {"type": "text", "text": greeting_text}
-            yield {"type": "done", "language": language, "source": "greeting"}
+            yield {"type": "done", "language": language, "source": "greeting", "chat_log_id": chat_log_id}
             return
 
         # Intent classification
@@ -2285,8 +2337,15 @@ class TravelChatbot:
             simple_msg = self._prompt("empty_query", language, 
                                      default_th="กรุณาพิมพ์คำถามเกี่ยวกับการท่องเที่ยวในสมุทรสงครามนะคะ",
                                      default_en="Please share a travel question for Samut Songkhram.")
+            full_response_text = simple_msg
+            # Save to database
+            try:
+                chat_log_id = self._save_chat_log(user_message, full_response_text, user_id, "empty_query")
+            except Exception as e:
+                logger.warning(f"Failed to save chat log: {e}")
+            
             yield {"type": "text", "text": simple_msg}
-            yield {"type": "done", "language": language, "source": "empty_query"}
+            yield {"type": "done", "language": language, "source": "empty_query", "chat_log_id": chat_log_id}
             return
         
         # Stream GPT response
@@ -2308,7 +2367,7 @@ class TravelChatbot:
                 if not matched_data:
                     recommendations_text = self._get_recommendations(count=3, language=language)
                 
-                # Stream the main response
+                # Stream the main response and collect text
                 for chunk in self.gpt_service.generate_response_stream(
                     user_query=clean_question,
                     context_data=matched_data,
@@ -2318,19 +2377,40 @@ class TravelChatbot:
                     data_status=data_status,
                     analysis_context=analysis_context,
                 ):
+                    # Collect text chunks for logging
+                    if "chunk" in chunk:
+                        full_response_text += chunk.get("chunk", "")
                     yield chunk
                 
                 # Append recommendations after main response if no database matches
                 if recommendations_text:
+                    full_response_text += f"\n\n{recommendations_text}"
                     yield {"chunk": f"\n\n{recommendations_text}", "language": language, "source": "recommendation_engine"}
+                
+                # Save to database after streaming completes
+                try:
+                    chat_log_id = self._save_chat_log(user_message, full_response_text, user_id, "gpt")
+                except Exception as e:
+                    logger.warning(f"Failed to save chat log: {e}")
+                
+                # Send final done event with chat_log_id
+                yield {"type": "done", "language": language, "source": "gpt", "chat_log_id": chat_log_id}
+                
             except Exception as e:
                 logger.error(f"GPT streaming failed: {e}")
                 yield {"type": "error", "message": str(e)}
         else:
             # Fallback to simple response
             simple_response = self._create_simple_response(matched_data, language, is_specific_place=(intent_type == 'specific'))
+            full_response_text = simple_response
+            # Save to database
+            try:
+                chat_log_id = self._save_chat_log(user_message, full_response_text, user_id, "simple")
+            except Exception as e:
+                logger.warning(f"Failed to save chat log: {e}")
+            
             yield {"type": "text", "text": simple_response}
-            yield {"type": "done", "language": language, "source": "simple", "structured_data": matched_data}
+            yield {"type": "done", "language": language, "source": "simple", "structured_data": matched_data, "chat_log_id": chat_log_id}
 
 
 _CHATBOT: Optional[TravelChatbot] = None

@@ -8,6 +8,7 @@ import AuthPage from "./pages/Auth";
 import Places from "./pages/Places";
 import PlaceDetail from "./pages/PlaceDetail";
 import Chat from "./pages/Chat";
+import News from "./pages/News";
 import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./hooks/useAuth";
 
@@ -19,13 +20,14 @@ const App = () => (
       <AuthProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/places" element={<Places />} />
             <Route path="/places/:id" element={<PlaceDetail />} />
             <Route path="/chat" element={<Chat />} />
+            <Route path="/news" element={<News />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, MapPin, MessageCircle, Home, LogIn, LogOut, User } from "lucide-react";
+import { Menu, X, MapPin, MessageCircle, Home, Newspaper, LogIn, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,6 +39,7 @@ const Navbar = () => {
     { to: "/", label: "หน้าแรก", labelEn: "Home", icon: Home },
     { to: "/places", label: "ค้นหาสถานที่", labelEn: "Places", icon: MapPin },
     { to: "/chat", label: "คุยกับ NongPlatoo", labelEn: "Chat", icon: MessageCircle },
+    { to: "/news", label: "ข่าวสาร", labelEn: "News", icon: Newspaper },
   ];
 
   const isHomePage = location.pathname === "/";

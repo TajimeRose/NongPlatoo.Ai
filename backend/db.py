@@ -43,6 +43,7 @@ from sqlalchemy import (
     String,
     text,
     Text,
+    Boolean,
     create_engine,
     or_,
     select,
@@ -156,7 +157,7 @@ class Place(Base):
 
         # Build google maps link if missing but coordinates exist
         maps_link = self.google_maps_link
-        if not maps_link and self.latitude is not None and self.longitude is not None:
+        if not maps_link and self.latitude and self.longitude:  # type: ignore
             maps_link = f"https://www.google.com/maps/search/?api=1&query={self.latitude},{self.longitude}"
 
         return {
@@ -197,15 +198,16 @@ class MessageFeedback(Base):
     __tablename__ = "message_feedback"
     
     id = Column(Integer, primary_key=True)
-    message_id = Column(String, nullable=False, unique=True)  # Unique identifier for each AI response
-    user_id = Column(String, nullable=False)  # User who gave feedback
-    user_message = Column(Text)  # Original user question
-    ai_response = Column(Text)  # AI's response
-    feedback_type = Column(String, nullable=False)  # 'like' or 'dislike'
-    feedback_comment = Column(Text)  # Optional: reason for dislike
-    intent = Column(String)  # What the AI detected as intent
-    source = Column(String)  # Response source (gpt, database, etc.)
-    created_at = Column(DateTime, default=func.now())
+    message_id = Column(String, nullable=False)  # character varying
+    user_id = Column(String, nullable=False)  # character varying
+    user_message = Column(Text, nullable=True)  # text
+    ai_response = Column(Text, nullable=True)  # text
+    feedback_type = Column(String, nullable=False)  # character varying
+    feedback_comment = Column(Text, nullable=True)  # text
+    intent = Column(String, nullable=True)  # character varying
+    source = Column(String, nullable=True)  # character varying
+    created_at = Column(DateTime, default=func.now())  # timestamp without time zone
+    chat_log_id = Column(Integer, nullable=True)  # integer - Reference to chat_logs table
     
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -219,6 +221,7 @@ class MessageFeedback(Base):
             "intent": self.intent,
             "source": self.source,
             "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "chat_log_id": self.chat_log_id,
         }
     
     def __repr__(self) -> str:
@@ -310,14 +313,58 @@ class LocationCache(Base):
         return {
             "id": self.id,
             "location_name": self.location_name,
-            "latitude": float(self.latitude) if self.latitude else None,
-            "longitude": float(self.longitude) if self.longitude else None,
+            "latitude": float(self.latitude) if self.latitude is not None else None,  # type: ignore
+            "longitude": float(self.longitude) if self.longitude is not None else None,  # type: ignore
             "source": self.source,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
         }
     
     def __repr__(self) -> str:
         return f"LocationCache(id={self.id!r}, name={self.location_name!r})"
+
+
+class News(Base):
+    """ORM model for news articles."""
+    
+    __tablename__ = "news"
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String(500), nullable=False)  # English title
+    title_th = Column(String(500), nullable=False)  # Thai title
+    summary = Column(Text, nullable=True)  # English summary
+    summary_th = Column(Text, nullable=True)  # Thai summary
+    content = Column(Text, nullable=True)  # English full content
+    content_th = Column(Text, nullable=True)  # Thai full content
+    category = Column(String(100), nullable=True)  # e.g., "กิจกรรม", "ข่าวท้องถิ่น"
+    image_url = Column(String(1000), nullable=True)
+    author = Column(String(200), nullable=True)
+    views = Column(Integer, default=0)
+    is_published = Column(Boolean, default=True)
+    published_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "title_th": self.title_th,
+            "summary": self.summary,
+            "summary_th": self.summary_th,
+            "content": self.content,
+            "content_th": self.content_th,
+            "category": self.category,
+            "image_url": self.image_url,
+            "author": self.author,
+            "views": self.views,
+            "is_published": self.is_published,
+            "published_at": self.published_at.isoformat() if self.published_at is not None else None,
+            "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at is not None else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"News(id={self.id!r}, title_th={self.title_th!r})"
 
 
 def get_cached_location(location_name: str) -> Dict[str, float] | None:
@@ -337,11 +384,11 @@ def get_cached_location(location_name: str) -> Dict[str, float] | None:
             
             if cached:
                 print(f"[CACHE HIT] Location '{location_name}' found in cache")
-                return {
+                result: Dict[str, float] = {
                     "lat": float(cached.latitude),
-                    "lng": float(cached.longitude),
-                    "source": "cache"
+                    "lng": float(cached.longitude)
                 }
+                return result
         return None
     except Exception as e:
         print(f"[WARN] Location cache lookup failed: {e}")
@@ -970,14 +1017,14 @@ def search_places_hybrid(
     
     # Add semantic scores
     for place in semantic_results:
-        place_id = int(place['id'])
+        place_id = int(place.get('id', 0))  # type: ignore
         scores[place_id] = place.copy()
         scores[place_id]['semantic_score'] = place.get('similarity_score', 0)
         scores[place_id]['keyword_score'] = 0
     
     # Add keyword scores
     for place in keyword_results:
-        place_id = int(place['id'])
+        place_id = int(place.get('id', 0))  # type: ignore
         if place_id not in scores:
             scores[place_id] = place.copy()
             scores[place_id]['semantic_score'] = 0
@@ -985,15 +1032,17 @@ def search_places_hybrid(
     
     # Calculate combined score
     for place_id in scores:
+        semantic_score = float(scores[place_id].get('semantic_score', 0))  # type: ignore
+        keyword_score = float(scores[place_id].get('keyword_score', 0))  # type: ignore
         scores[place_id]['combined_score'] = (
-            scores[place_id].get('semantic_score', 0) * (1 - keyword_weight) +
-            scores[place_id].get('keyword_score', 0) * keyword_weight
+            semantic_score * (1 - keyword_weight) +
+            keyword_score * keyword_weight
         )
     
     # Sort by combined score and return top limit
     sorted_results = sorted(
         scores.values(),
-        key=lambda x: x.get('combined_score', 0),
+        key=lambda x: float(x.get('combined_score', 0)),  # type: ignore
         reverse=True
     )[:limit]
     
