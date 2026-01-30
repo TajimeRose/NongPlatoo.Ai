@@ -622,11 +622,27 @@ def tts_endpoint():
         })
         
     except Exception as e:
-        logger.error(f"[TTS] Error generating speech: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logger.warning(f"[TTS] Edge TTS failed: {e}. Trying gTTS fallback...")
+        try:
+            from backend.services.tts_service import generate_thai_speech
+            result = generate_thai_speech(text)
+            if result['success']:
+                logger.info(f"[TTS] Fallback to gTTS success")
+                return jsonify({
+                    'success': True,
+                    'audio': result['audio'],
+                    'format': 'mp3',
+                    'voice': 'gtts',
+                    'text_length': len(text)
+                })
+            else:
+                raise Exception(result.get('error', 'Unknown gTTS error'))
+        except Exception as gtts_error:
+            logger.error(f"[TTS] All TTS providers failed. Edge: {e}, gTTS: {gtts_error}")
+            return jsonify({
+                'success': False,
+                'error': f"Main: {str(e)} | Fallback: {str(gtts_error)}"
+            }), 500
 
 
 @app.route('/api/messages/stream', methods=['POST'])
