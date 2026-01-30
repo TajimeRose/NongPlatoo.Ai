@@ -18,6 +18,7 @@ type StructuredPlace = {
   images?: string[] | string | unknown;
   opening_hours?: string;
   contact?: string;
+  google_maps_link?: string;
 };
 
 interface ChatMessageProps {
@@ -98,18 +99,50 @@ const StructuredPlaceCard = ({ place, fallback }: { place: StructuredPlace; fall
     setImageErrored(true);
   };
 
+  const mapsLink = place.google_maps_link;
+
+  const ImageComponent = (
+    <img
+      src={imageSrc}
+      alt={name}
+      className="w-16 h-16 rounded-lg object-cover flex-shrink-0 transition-transform hover:scale-105"
+      loading="lazy"
+      onError={handleImageError}
+    />
+  );
+
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div className="rounded-xl border border-border bg-muted/40 p-3 hover:bg-muted/60 transition-colors">
       <div className="flex items-start gap-3">
-        <img
-          src={imageSrc}
-          alt={name}
-          className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-          loading="lazy"
-          onError={handleImageError}
-        />
-        <div className="space-y-1">
-          <p className="font-semibold text-foreground leading-tight">{name}</p>
+        {mapsLink ? (
+          <a
+            href={mapsLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block flex-shrink-0 cursor-pointer"
+            title="ดูแผนที่ใน Google Maps"
+          >
+            {ImageComponent}
+          </a>
+        ) : (
+          <div className="flex-shrink-0">
+            {ImageComponent}
+          </div>
+        )}
+        <div className="space-y-1 min-w-0">
+          <div className="flex justify-between items-start gap-2">
+            <p className="font-semibold text-foreground leading-tight truncate">{name}</p>
+            {mapsLink && (
+              <a
+                href={mapsLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline flex-shrink-0"
+              >
+                แผนที่
+              </a>
+            )}
+          </div>
           {typeLabel && <p className="text-xs text-muted-foreground">{typeLabel}</p>}
           <p className="text-sm text-foreground/80 leading-relaxed line-clamp-3">{desc}</p>
           {locationText && (
@@ -183,23 +216,63 @@ const MainPlaceCard = ({ place, fallback }: { place: StructuredPlace; fallback: 
     setImageErrored(true);
   };
 
+  const mapsLink = (place as any).google_maps_link;
+
   return (
-    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-lg">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-lg hover:shadow-xl transition-shadow">
       {/* Image Section */}
-      <div className="relative aspect-video overflow-hidden bg-muted">
-        <img
-          src={imageSrc}
-          alt={name}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          onError={handleImageError}
-        />
+      <div className="relative aspect-video overflow-hidden bg-muted group">
+        {mapsLink ? (
+          <a
+            href={mapsLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full h-full cursor-pointer relative"
+          >
+            <img
+              src={imageSrc}
+              alt={name}
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              loading="lazy"
+              onError={handleImageError}
+            />
+            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div className="bg-background/80 backdrop-blur px-3 py-1.5 rounded-full flex items-center gap-2 text-sm font-medium">
+                <MapPin className="w-4 h-4 text-primary" />
+                ดูแผนที่
+              </div>
+            </div>
+          </a>
+        ) : (
+          <img
+            src={imageSrc}
+            alt={name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={handleImageError}
+          />
+        )}
       </div>
 
       {/* Content Section */}
       <div className="p-4 space-y-3">
-        {typeLabel && <p className="text-sm font-medium text-primary">{typeLabel}</p>}
-        <h3 className="text-xl font-bold text-foreground">{name}</h3>
+        <div className="flex justify-between items-start">
+          <div>
+            {typeLabel && <p className="text-sm font-medium text-primary">{typeLabel}</p>}
+            <h3 className="text-xl font-bold text-foreground">{name}</h3>
+          </div>
+          {mapsLink && (
+            <a
+              href={mapsLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs bg-secondary/50 hover:bg-secondary px-2 py-1 rounded-md text-foreground transition-colors"
+            >
+              Google Maps
+            </a>
+          )}
+        </div>
+
         <p className="text-sm text-foreground/80 leading-relaxed">{desc}</p>
 
         <div className="space-y-2 pt-2">
