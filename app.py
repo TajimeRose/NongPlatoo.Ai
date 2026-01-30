@@ -797,6 +797,16 @@ def post_message_stream():
                 
                 # Stream GPT response
                 if chatbot.gpt_service:
+                    analysis_context = None
+                    try:
+                        analysis_payload = chatbot.gpt_service.analyze_user_intent(
+                            intent_classification['clean_question'],
+                            chatbot._detect_language(intent_classification['clean_question'])
+                        )
+                        analysis_context = json.dumps(analysis_payload, ensure_ascii=False)
+                    except Exception as exc:
+                        logger.warning(f"[GPT] Intent analysis skipped: {exc}")
+
                     for chunk in chatbot.gpt_service.generate_response_stream(
                         user_query=intent_classification['clean_question'],
                         context_data=matched_data,
@@ -809,6 +819,7 @@ def post_message_stream():
                             'source': 'database',
                             'classified_intent_type': intent_classification['intent_type'],
                         },
+                        analysis_context=analysis_context,
                         conversation_history=conversation_history
                     ):
                         # Send heartbeat every 5 seconds to keep iOS connection alive
@@ -955,6 +966,91 @@ def speech_to_text():
         
     except Exception as e:
         logger.exception("Error in speech-to-text")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/vad/detect', methods=['POST'])
+def vad_detect():
+    """Voice Activity Detection - detect if audio contains speech."""
+    try:
+        from backend.services.vad_service import get_vad
+        
+        # Get audio data from request
+        if 'audio' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No audio data provided'
+            }), 400
+        
+        audio_file = request.files['audio']
+        audio_bytes = audio_file.read()
+        
+        # Get VAD parameters
+        sample_rate = int(request.form.get('sample_rate', 16000))
+        aggressiveness = int(request.form.get('aggressiveness', 2))
+        check_end = request.form.get('check_end', 'false').lower() == 'true'
+        
+        # Get VAD instance
+        vad = get_vad(aggressiveness=aggressiveness)
+        
+        if check_end:
+            # Check if speech has ended
+            is_speaking, speech_ended = vad.detect_speech_end(
+                audio_bytes, 
+                sample_rate=sample_rate
+            )
+            
+            return jsonify({
+                'success': True,
+                'is_speaking': is_speaking,
+                'speech_ended': speech_ended,
+                'method': 'webrtc' if vad.vad else 'energy'
+            })
+        else:
+            # Just check if current chunk has speech
+            has_speech = vad.is_speech(audio_bytes, sample_rate=sample_rate)
+            
+            return jsonify({
+                'success': True,
+                'has_speech': has_speech,
+                'method': 'webrtc' if vad.vad else 'energy'
+            })
+        
+    except Exception as e:
+        logger.exception("Error in VAD detection")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/vad/status', methods=['GET'])
+def vad_status():
+    """Check VAD availability and configuration."""
+    try:
+        from backend.services.vad_service import check_vad_availability
+        
+        availability = check_vad_availability()
+        
+        return jsonify({
+            'success': True,
+            'available': availability['webrtc_vad'] or availability['energy_fallback'],
+            'methods': availability,
+            'recommended_sample_rate': 16000,
+            'supported_sample_rates': [8000, 16000, 32000, 48000],
+            'aggressiveness_levels': {
+                0: 'Quality (most sensitive)',
+                1: 'Low bitrate (balanced)',
+                2: 'Aggressive (recommended)',
+                3: 'Very aggressive (least sensitive)'
+            }
+        })
+        
+    except Exception as e:
+        logger.exception("Error checking VAD status")
         return jsonify({
             'success': False,
             'error': str(e)
