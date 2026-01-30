@@ -1493,60 +1493,13 @@ def get_categories():
         }), 500
 
 
+# Feedback endpoint is handled by backend/api/feedback.py (feedback_api_bp)
+# Adding explicit route to ensure it's recognized by Flask
 @app.route('/api/feedback', methods=['POST'])
-def submit_feedback():
-    """Submit like/dislike feedback for an AI response."""
-    try:
-        data = request.get_json()
-        
-        # Validate required fields
-        if not data or 'message_id' not in data or 'feedback_type' not in data:
-            return jsonify({'error': 'message_id and feedback_type are required'}), 400
-        
-        if data['feedback_type'] not in ['like', 'dislike']:
-            return jsonify({'error': 'feedback_type must be "like" or "dislike"'}), 400
-        
-        from backend.db import get_session_factory, MessageFeedback
-        session_factory = get_session_factory()
-        session = session_factory()
-        
-        try:
-            # Check if feedback already exists for this message
-            existing = session.query(MessageFeedback).filter_by(
-                message_id=data['message_id']
-            ).first()
-            
-            if existing:
-                # Update existing feedback
-                existing.feedback_type = data['feedback_type']
-                existing.feedback_comment = data.get('comment', '')
-            else:
-                # Create new feedback
-                feedback = MessageFeedback(
-                    message_id=data['message_id'],
-                    user_id=data.get('user_id', 'anonymous'),
-                    user_message=data.get('user_message', ''),
-                    ai_response=data.get('ai_response', ''),
-                    feedback_type=data['feedback_type'],
-                    feedback_comment=data.get('comment', ''),
-                    intent=data.get('intent', ''),
-                    source=data.get('source', '')
-                )
-                session.add(feedback)
-            
-            session.commit()
-            
-            return jsonify({
-                'success': True,
-                'message': 'Feedback recorded successfully'
-            })
-            
-        finally:
-            session.close()
-            
-    except Exception as e:
-        logger.error(f"Feedback endpoint error: {e}", exc_info=True)
-        return jsonify({'error': 'Internal server error'}), 500
+def api_feedback_handler():
+    """Delegate to the feedback blueprint."""
+    from backend.api.feedback import save_feedback
+    return save_feedback()
 
 
 @app.route('/api/feedback/stats', methods=['GET'])

@@ -4,8 +4,9 @@ from backend.api.auth import auth_bp
 from backend.api.users import users_bp
 from backend.api.tracking import tracking_api_bp
 from backend.api.feedback import feedback_api_bp
+from backend.routes.news import news_bp
 
-__all__ = ['auth_bp', 'users_bp', 'tracking_api_bp', 'feedback_api_bp']
+__all__ = ['auth_bp', 'users_bp', 'tracking_api_bp', 'feedback_api_bp', 'news_bp']
 
 
 def register_api_blueprints(app):
@@ -19,4 +20,5 @@ def register_api_blueprints(app):
     app.register_blueprint(users_bp)
     app.register_blueprint(tracking_api_bp)
     app.register_blueprint(feedback_api_bp)
+    app.register_blueprint(news_bp)
     return app

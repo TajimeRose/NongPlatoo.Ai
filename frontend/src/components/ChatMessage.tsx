@@ -346,22 +346,33 @@ const ChatMessage = ({
   const handleFeedback = async (type: 'like' | 'dislike') => {
     // Prefer chatLogId over messageId for new feedback system
     const logId = chatLogId || messageId;
-    if (!logId || isSubmitting) return;
+    
+    // Prevent submission if no ID or already submitting
+    if (!logId || isSubmitting) {
+      console.warn('Cannot submit feedback: missing chat_log_id or messageId', { chatLogId, messageId, isSubmitting });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
+      console.log('Submitting feedback:', { chat_log_id: logId, type });
       const response = await fetch(`${API_BASE}/api/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chat_log_id: logId,  // Use chat_log_id for new API
+          chat_log_id: logId,
           type: type,
           comment: '',
         }),
       });
 
       if (response.ok) {
+        const result = await response.json();
+        console.log('Feedback submitted successfully:', result);
         setFeedback(type);
+      } else {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Feedback submission failed:', response.status, error);
       }
     } catch (error) {
       console.error('Failed to submit feedback:', error);
@@ -413,7 +424,7 @@ const ChatMessage = ({
         {structuredData.length > 0 && <StructuredPlaces places={structuredData} />}
 
         {/* Feedback Buttons for AI Messages */}
-        {!isUser && (chatLogId || messageId) && (
+        {!isUser && chatLogId && (
           <div className="flex items-center gap-2 mt-3 pt-2 border-t border-border">
             <Button
               variant="ghost"

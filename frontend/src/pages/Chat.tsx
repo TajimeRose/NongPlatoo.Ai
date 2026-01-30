@@ -617,6 +617,7 @@ const Chat = () => {
                   }
                 } else if (data.type === "done") {
                   // Finalize message with chat_log_id for feedback
+                  console.log('Received done event with chat_log_id:', data.chat_log_id);
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === assistantId
@@ -642,8 +643,16 @@ const Chat = () => {
                   throw new Error(data.message);
                 }
               } catch (parseError) {
-                // Skip invalid JSON lines
-                console.warn("Failed to parse SSE data:", parseError);
+                // Only warn about parse errors if it's not empty data
+                if (line.trim().length > 0) {
+                  // Check if it's an actual error message from backend
+                  const errorMatch = line.match(/Error:\s*(.+)/i);
+                  if (errorMatch) {
+                    throw new Error(errorMatch[1]);
+                  }
+                  // Otherwise just warn about unparseable data
+                  console.debug("Skipping unparseable SSE line:", line.substring(0, 100));
+                }
               }
             }
           }

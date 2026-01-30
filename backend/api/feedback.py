@@ -16,9 +16,12 @@ def save_feedback():
             "type": "like" or "dislike",
             "comment": "Optional comment"
         }
+    
+    If feedback already exists for this chat_log_id, it will be updated (not duplicated).
     """
     try:
         from backend.db import MessageFeedback, get_session_factory
+        from sqlalchemy import select
         
         data = request.get_json(silent=True) or {}
         
@@ -40,27 +43,56 @@ def save_feedback():
         except Exception:
             pass
         
-        new_feedback = MessageFeedback(
-            message_id=str(chat_log_id),  # Use chat_log_id as message_id
-            user_id=user_id,
-            feedback_type=feedback_type,
-            feedback_comment=comment,
-        )
-        
         session_factory = get_session_factory()
         with session_factory() as session:
-            session.add(new_feedback)
-            session.commit()
-            feedback_id = new_feedback.id
+            # Use chat_log_id as the unique identifier
+            message_id_str = str(chat_log_id)
+            
+            # Check if feedback already exists for this chat_log_id
+            existing_feedback = session.scalar(
+                select(MessageFeedback).where(
+                    MessageFeedback.chat_log_id == chat_log_id
+                )
+            )
+            
+            if existing_feedback:
+                # Update existing feedback
+                print(f"[INFO] Updating existing feedback for chat_log_id={chat_log_id}")
+                existing_feedback.feedback_type = feedback_type
+                existing_feedback.feedback_comment = comment
+                existing_feedback.user_id = user_id
+                existing_feedback.message_id = message_id_str
+                session.commit()
+                feedback_id = existing_feedback.id
+                is_update = True
+                print(f"[OK] Feedback updated: id={feedback_id}, type={feedback_type}")
+            else:
+                # Create new feedback
+                print(f"[INFO] Creating new feedback for chat_log_id={chat_log_id}")
+                new_feedback = MessageFeedback(
+                    message_id=message_id_str,
+                    user_id=user_id,
+                    feedback_type=feedback_type,
+                    feedback_comment=comment,
+                    chat_log_id=chat_log_id,
+                )
+                session.add(new_feedback)
+                session.commit()
+                feedback_id = new_feedback.id
+                is_update = False
+                print(f"[OK] Feedback created: id={feedback_id}, type={feedback_type}")
         
         return jsonify({
             'success': True,
             'feedback_id': feedback_id,
-            'type': feedback_type
-        }), 201
+            'type': feedback_type,
+            'is_update': is_update
+        }), 201 if not is_update else 200
         
     except Exception as e:
         print(f"[ERROR] Feedback save failed: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
