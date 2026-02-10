@@ -3,34 +3,32 @@ import { MapPin, MessageCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
 import CategoryCard from "@/components/CategoryCard";
-import heroImage from "@/assets/hero-floating-market.jpg";
-import marketImage from "@/assets/category-market.jpg";
+import heroImage from "@/assets/ปกเว็บ.jpg";
 import templeImage from "@/assets/category-temple.jpg";
 import homestayImage from "@/assets/category-homestay.jpg";
 import AgencyLogos from "@/components/AgencyLogos";
-
 
 const Index = () => {
   const categories = [
     {
       title: "Floating Markets",
       titleTh: "ตลาดน้ำ",
-      description: "Experience the charm of traditional floating markets with fresh seafood and local delicacies",
-      image: marketImage,
+      description: "เที่ยวตลาดน้ำอัมพวา ชิมอาหารทะเลสดและวิถีพายเรือเมืองแม่กลอง",
+      image: "https://paimayang.com/wp-content/uploads/2020/02/82_20190826014648_1-840x560.jpg",
       category: "market",
     },
     {
       title: "Temples & Culture",
       titleTh: "วัดและวัฒนธรรม",
-      description: "Discover ancient temples nestled in nature and rich cultural heritage",
-      image: templeImage,
+      description: "ไหว้พระริมน้ำ ชมวัดดังและวัฒนธรรมโบราณของสมุทรสงคราม",
+      image: "https://t1.blockdit.com/photos/2023/03/64053c674d188033c3a4bb5a_800x0xcover_Xv4jzo41.jpg",
       category: "temple",
     },
     {
       title: "Homestays & Gardens",
       titleTh: "โฮมสเตย์และสวน",
-      description: "Relax in riverside homestays surrounded by lush coconut gardens",
-      image: homestayImage,
+      description: "พักโฮมสเตย์สวนมะพร้าว ริมคลองสงบใกล้กรุงเทพฯ",
+      image: "https://www.saitiew.com/upload/2024/11/3zkr3nr94bba.jpg",
       category: "homestay",
     },
   ];
@@ -54,29 +52,30 @@ const Index = () => {
         {/* Content */}
         <div className="relative z-10 container mx-auto px-4 text-center">
           <div className="max-w-3xl mx-auto animate-fade-in">
-            <h1 className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-primary-foreground mb-4 leading-tight">
-              <span className="block">สำรวจ</span>
-              <span className="block text-golden">สมุทรสงคราม</span>
+            <h1 className="font-display text-4xl md:text-6xl lg:text-6xl font-bold text-primary-foreground mb-4 leading-tight">
+              <span className="block mb-3">น้องปลาทู</span>
+              <span className="block text-golden">ผู้ช่วยประชาสัมพันธ์</span>
+              <span className="block text-golden">การท่องเที่ยวอัจฉริยะ</span>
             </h1>
             <p className="text-xl md:text-2xl text-primary-foreground/90 mb-4 font-display">
-              Explore Samut Songkhram
+
             </p>
             <p className="text-lg text-primary-foreground/80 mb-8 max-w-xl mx-auto">
-              with Your AI Travel Guide — Discover hidden gems, floating markets, and authentic Thai culture
+              “Nong Pla Too" Intelligent Travel Publicity with AI
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/places">
                 <Button variant="hero" size="xl" className="w-full sm:w-auto">
                   <MapPin className="w-5 h-5" />
-                  Browse Places
+                  ค้นหาสถานที่
                   <ArrowRight className="w-5 h-5" />
                 </Button>
               </Link>
               <Link to="/chat">
                 <Button variant="heroOutline" size="xl" className="w-full sm:w-auto">
                   <MessageCircle className="w-5 h-5" />
-                  Chat with AI Guide
+                  Chat with NongPlatoo
                 </Button>
               </Link>
             </div>
@@ -127,10 +126,10 @@ const Index = () => {
                 <MessageCircle className="w-8 h-8 text-primary-foreground" />
               </div>
               <h2 className="font-display text-2xl md:text-3xl font-bold text-primary-foreground mb-4">
-                พบกับ Platu — AI Travel Assistant
+                พบกับ NongPlatoo.Ai
               </h2>
               <p className="text-primary-foreground/80 text-lg mb-8 max-w-xl mx-auto">
-                Get personalized recommendations, plan your perfect day trip, and discover hidden gems with our AI-powered travel assistant.
+                ให้น้องปลาทูช่วยวางแผนเที่ยว ค้นหาที่กิน-ที่เที่ยวลับแบบรู้ใจ จัดทริปวันหยุดของคุณให้ง่ายและสนุกกว่าเดิม
               </p>
               <Link to="/chat">
                 <Button
@@ -151,7 +150,7 @@ const Index = () => {
       <footer className="py-8 bg-muted border-t border-border">
         <div className="container mx-auto px-4 text-center">
           <p className="text-muted-foreground text-sm">
-            © 2024 Samut Songkhram Travel Guide. Made with 💙 for river lovers.
+            © 2025 สาขาวิชาเทคโนโลยีธุรกิจดิจิทัล  วิทยาลัยเทคนิคสมุทรสงคราม.
           </p>
         </div>
       </footer>

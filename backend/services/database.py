@@ -1,6 +1,6 @@
 """Database service layer for PostgreSQL-backed resources.
 
-This module wraps the SQLAlchemy helpers defined in ``world_journey_ai.db``
+This module wraps the SQLAlchemy helpers defined in ``db``
 so the rest of the codebase (notably ``chatbot_postgres``) can talk to the
 PostgreSQL database managed through pgAdmin 4 or any other PostgreSQL client.
 
@@ -19,7 +19,7 @@ from sqlalchemy import select, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from db import Place, TouristPlace, get_session_factory, init_db
+from ..db import Place, get_session_factory, init_db
 
 
 class DatabaseService:
@@ -63,15 +63,11 @@ class DatabaseService:
 
     def get_all_destinations(self) -> List[Dict[str, Any]]:
         with self.session() as session:
-            # Get from both tables
+            # Get from places table only
             places_result = session.execute(select(Place).order_by(Place.rating.desc().nullslast()))
             places = places_result.scalars().all()
             
-            tourist_result = session.execute(select(TouristPlace).order_by(TouristPlace.rating.desc().nullslast()))
-            tourist_places = tourist_result.scalars().all()
-            
             all_destinations = [self._place_to_dict(place) for place in places]
-            all_destinations.extend([place.to_dict() for place in tourist_places])
             
             # Sort by rating
             all_destinations.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
@@ -80,7 +76,7 @@ class DatabaseService:
     def search_destinations(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         pattern = f"%{query}%"
         with self.session() as session:
-            # Search in places table
+            # Search in places table only
             places_stmt = (
                 select(Place)
                 .where(
@@ -91,33 +87,14 @@ class DatabaseService:
                         Place.category.ilike(pattern),
                     )
                 )
-                .order_by(Place.rating.desc().nullslast())
-            )
-            
-            # Search in tourist_places table
-            tourist_stmt = (
-                select(TouristPlace)
-                .where(
-                    or_(
-                        TouristPlace.name_th.ilike(pattern),
-                        TouristPlace.description.ilike(pattern),
-                        TouristPlace.location.ilike(pattern),
-                    )
-                )
-                .order_by(TouristPlace.rating.desc().nullslast())
+                .order_by(Place.name.asc())
             )
             
             places_result = session.execute(places_stmt)
             places = places_result.scalars().all()
             
-            tourist_result = session.execute(tourist_stmt)
-            tourist_places = tourist_result.scalars().all()
-            
             results = [self._place_to_dict(place) for place in places]
-            results.extend([place.to_dict() for place in tourist_places])
             
-            # Sort by rating and limit
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
             return results[:limit]
 
     def search_attractions_only(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -145,72 +122,126 @@ class DatabaseService:
         is_generic_query = generic_count >= 2 and not has_specific
         
         with self.session() as session:
-            # If generic query, return top tourist attractions
+            # If generic query, return top places
             if is_generic_query:
-                tourist_stmt = (
-                    select(TouristPlace)
-                    .order_by(TouristPlace.rating.desc().nullslast())
+                stmt = (
+                    select(Place)
+                    .order_by(Place.name.asc())
                     .limit(limit)
                 )
             else:
                 # Search with the full query
                 pattern = f"%{query}%"
-                tourist_stmt = (
-                    select(TouristPlace)
+                stmt = (
+                    select(Place)
                     .where(
                         or_(
-                            TouristPlace.name_th.ilike(pattern),
-                            TouristPlace.description.ilike(pattern),
-                            TouristPlace.location.ilike(pattern),
+                            Place.name.ilike(pattern),
+                            Place.description.ilike(pattern),
+                            Place.address.ilike(pattern),
+                            Place.category.ilike(pattern),
                         )
                     )
-                    .order_by(TouristPlace.rating.desc().nullslast())
+                    .order_by(Place.name.asc())
                     .limit(limit)
                 )
             
-            tourist_result = session.execute(tourist_stmt)
-            tourist_places = tourist_result.scalars().all()
+            result = session.execute(stmt)
+            places = result.scalars().all()
             
-            return [place.to_dict() for place in tourist_places]
+            return [self._place_to_dict(place) for place in places]
 
     def get_destination_by_id(self, destination_id: str) -> Optional[Dict[str, Any]]:
         with self.session() as session:
-            # Check if it's a tourist place (starts with 'tourist_')
-            if destination_id.startswith('tourist_'):
-                try:
-                    tourist_id = int(destination_id.replace('tourist_', ''))
-                    tourist_place = session.get(TouristPlace, tourist_id)
-                    return tourist_place.to_dict() if tourist_place else None
-                except ValueError:
-                    pass
-            
-            # Try regular places table
-            place = session.get(Place, destination_id)
-            return self._place_to_dict(place) if place else None
+            # Try to get from places table
+            try:
+                # Handle both string and int IDs
+                if destination_id.startswith('tourist_'):
+                    destination_id = destination_id.replace('tourist_', '')
+                
+                place = session.get(Place, int(destination_id))
+                return self._place_to_dict(place) if place else None
+            except (ValueError, AttributeError):
+                return None
 
     def get_destinations_by_type(self, dest_type: str) -> List[Dict[str, Any]]:
         pattern = f"%{dest_type}%"
         with self.session() as session:
-            # Search places table
+            # Search places table by category and attraction_type
             places_rows = session.execute(
-                select(Place).where(Place.category.ilike(pattern)).order_by(Place.rating.desc().nullslast())
+                select(Place).where(
+                    or_(
+                        Place.category.ilike(pattern),
+                        Place.attraction_type.ilike(pattern)
+                    )
+                ).order_by(Place.name.asc())
             )
             places = places_rows.scalars().all()
             
-            # Search tourist_places table (search in tags)
-            from sqlalchemy import cast, Text
-            tourist_rows = session.execute(
-                select(TouristPlace).where(
-                    cast(TouristPlace.tags, Text).ilike(pattern)
-                ).order_by(TouristPlace.rating.desc().nullslast())
+            results = [self._place_to_dict(place) for place in places]
+            return results
+
+    def search_main_attractions(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search ONLY places with attraction_type='main_attraction'.
+        
+        Used when user asks for primary tourist attractions ("สถานที่ท่องเที่ยว", "ที่เที่ยวหลัก").
+        Filtering is done at SQL level - results are already database-classified.
+        AI should NOT attempt to reclassify these places.
+        
+        Args:
+            query: Search keywords
+            limit: Maximum number of main attractions to return
+            
+        Returns:
+            List of places where attraction_type='main_attraction'
+            If no main attractions found, returns empty list and AI should explicitly 
+            state that no primary attractions exist for this query.
+        """
+        pattern = f"%{query}%"
+        with self.session() as session:
+            # ONLY include places with attraction_type = 'main_attraction'
+            places_stmt = (
+                select(Place)
+                .where(
+                    Place.attraction_type == 'main_attraction',
+                    or_(
+                        Place.name.ilike(pattern),
+                        Place.description.ilike(pattern),
+                        Place.address.ilike(pattern),
+                        Place.category.ilike(pattern),
+                    )
+                )
+                .order_by(Place.name.asc())
             )
-            tourist_places = tourist_rows.scalars().all()
+            
+            places_result = session.execute(places_stmt)
+            places = places_result.scalars().all()
             
             results = [self._place_to_dict(place) for place in places]
-            results.extend([place.to_dict() for place in tourist_places])
+            return results[:limit]
+
+    def get_all_main_attractions(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Retrieve ALL places classified as main attractions.
+        
+        Useful for listing main tourist spots without search filtering.
+        Database classification only - no AI reclassification.
+        
+        Returns:
+            All places where attraction_type='main_attraction'
+        """
+        with self.session() as session:
+            places_stmt = (
+                select(Place)
+                .where(Place.attraction_type == 'main_attraction')
+                .order_by(Place.name.asc())
+            )
+            places_result = session.execute(places_stmt)
+            places = places_result.scalars().all()
             
-            results.sort(key=lambda x: float(x.get('rating', 0) or 0), reverse=True)  # type: ignore
-            return results
+            results = [self._place_to_dict(place) for place in places]
+            return results[:limit]
 
     # ------------------------------------------------------------------
     # Trip plans & analytics (not yet backed by concrete tables)

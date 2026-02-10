@@ -5,12 +5,39 @@
 .env.development.local
 .env.test.local
 .env.production.local
+<<<<<<< HEAD
 *.pem
 *.p12
 *.key
 *_private_key*
 serviceAccountKey.json
 secrets.json
+=======
+backend/.env
+backend/.env.local
+backend/.env.*.local
+*.pem
+*.p12
+*.key
+*.pfx
+*.crt
+*_private_key*
+*_secret*
+serviceAccountKey.json
+secrets.json
+firebase-key.json
+google-*.json
+aws-credentials.json
+.aws/
+.credentials/
+credentials/
+
+# --- Logs with potentially sensitive data ---
+*.log
+logs/
+flask.log
+db_check.log
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 
 # --- Python ---
 __pycache__/
@@ -24,7 +51,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+
 lib64/
 parts/
 sdist/
@@ -99,6 +126,19 @@ coverage/
 *.sublime-workspace
 *.sublime-project
 .DS_Store
+<<<<<<< HEAD
+=======
+
+# --- Testing & Development Files ---
+test_*.py
+*_test.py
+tmp_*.py
+temp_*.py
+scratch_*.py
+debug_*.py
+
+# --- Miscellaneous ---
+>>>>>>> 4c7244b721690ab5df8e54c12381777bf4dd3138
 Thumbs.db
 desktop.ini
 ehthumbs.db

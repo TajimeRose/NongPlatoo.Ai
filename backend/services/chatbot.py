@@ -10,10 +10,10 @@ import time
 from typing import Any, Dict, List, Optional, TYPE_CHECKING, Set, Tuple
 import re
 
-from world_journey_ai.services.province_guides import PROVINCE_GUIDES, PROVINCE_SYNONYMS
-from world_journey_ai.services.guides import build_bangkok_guides_html
-from world_journey_ai.services.messages import MessageStore
-from world_journey_ai.services.enhanced_knowledge import enhanced_knowledge, PlaceKnowledge
+from services.province_guides import PROVINCE_GUIDES, PROVINCE_SYNONYMS
+from services.guides import build_bangkok_guides_html
+from services.messages import MessageStore
+from services.enhanced_knowledge import enhanced_knowledge, PlaceKnowledge
 
 from config_loader import get_config_value, get_prompts_config
 
@@ -64,13 +64,13 @@ GUIDE_ONLY_MESSAGE = (
 
 # Prototype: Restrict to Samutsongkhram province only
 SAMUTSONGKHRAM_ONLY_MESSAGE = (
-    "ขออภัยค่ะ น้องปลาทูเป็นไกด์เฉพาะพื้นที่จังหวัดสมุทรสงครามเท่านั้นค่ะ ตอนนี้ให้ข้อมูลเฉพาะสถานที่ท่องเที่ยวในสมุทรสงคราม เช่น:\n"
+    "น้องปลาทูมีข้อมูลเฉพาะสถานที่ท่องเที่ยวในจังหวัดสมุทรสงคราม เช่น:\n"
     "🏛️ วัดบางกุ้ง (โบสถ์รากไทร)\n"
     "🛶 ตลาดน้ำอัมพวา\n"
     "🌲 คลองโคน (ป่าชายเลน)\n"
     "🏛️ อุทยานพระราม 2\n"
     "🚣 บ้านดำเนินสะดวก\n\n"
-    "ลองถามเกี่ยวกับสถานที่เหล่านี้ดูค่ะ!"
+    "ลองถามเกี่ยวกับสถานที่เหล่านี้ดูค่ะ! (ขออภัยนะคะที่น้องปลาทูเป็นไกด์เฉพาะพื้นที่สมุทรสงครามเท่านั้น)"
 )
 
 
@@ -1054,12 +1054,13 @@ class BaseAIEngine:
         if relevance_score > 0.5:
             # High relevance but AI failed - suggest checking back later
             fallback_text = (
-                f"I understand you're asking about {query}. While I'm currently updating my knowledge about this specific location, "
-                "I'd recommend checking official tourism websites or recent travel guides for the most current information. "
-                "Is there another destination I can help you with?"
+                f"I understand you're asking about {query}. I'd recommend checking official tourism websites or recent travel guides for the most current information. "
+                "Is there another destination I can help you with? "
+                "(I'm currently updating my knowledge about this specific location)"
                 if lang == "en"
-                else f"เข้าใจว่าคุณถามเกี่ยวกับ {query} ค่ะ ขณะนี้ข้อมูลเฉพาะสถานที่นี้กำลังอัปเดต "
-                "แนะนำให้ตรวจสอบเว็บไซต์ท่องเที่ยวหรือคู่มือท่องเที่ยวล่าสุดนะคะ มีที่อื่นที่อยากทราบไหมคะ?"
+                else f"เข้าใจว่าคุณถามเกี่ยวกับ {query} ค่ะ "
+                "แนะนำให้ตรวจสอบเว็บไซต์ท่องเที่ยวหรือคู่มือท่องเที่ยวล่าสุดนะคะ มีที่อื่นที่อยากทราบไหมคะ? "
+                "(ขณะนี้ข้อมูลเฉพาะสถานที่นี้กำลังอัปเดตอยู่ค่ะ)"
             )
         elif relevance_score > 0.2:
             # Medium relevance - offer general travel advice
