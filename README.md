@@ -9,6 +9,26 @@ NongPlatoo.Ai คือผู้ช่วยท่องเที่ยวอั
 
 ---
 
+## 🏆 รางวัล
+
+### ระดับภาค
+
+<p align="center">
+  <img src="docs/images/awards/ระดับาค 1.jpg" alt="รางวัลระดับภาค 1" width="300">
+  <img src="docs/images/awards/ระดับภาค 2.jpg" alt="รางวัลระดับภาค 2" width="300">
+  <img src="docs/images/awards/ระดับภาค 3.jpg" alt="รางวัลระดับภาค 3" width="300">
+</p>
+
+### ระดับประเทศ
+
+<p align="center">
+  <img src="docs/images/awards/ระดับประเทศ1.jpg" alt="รางวัลระดับประเทศ 1" width="400">
+  <img src="docs/images/awards/ระดับประเทศ/ระดับประเทศ2.jpg" alt="รางวัลระดับประเทศ 2" width="400">
+</p>
+
+
+---
+
 ## ฟีเจอร์หลัก
 
 - **GPT-4o Streaming Chat** – สนทนาแบบ real-time พร้อมบุคลิก "น้องปลาทู"
