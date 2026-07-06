@@ -1,6 +1,6 @@
 # NongPlatoo.Ai – ผู้ช่วยท่องเที่ยวสมุทรสงคราม
 
-NongPlatoo.Ai คือผู้ช่วยท่องเที่ยวสำหรับจังหวัดสมุทรสงคราม ประเทศไทย ใช้ GPT-4o เพื่อให้คำแนะนำการท่องเที่ยวและข้อมูลสถานที่ท่องเที่ยวอย่างละเอียด
+NongPlatoo.Ai คือผู้ช่วยท่องเที่ยวอัจฉริยะสำหรับจังหวัดสมุทรสงคราม ใช้ GPT-4o แนะนำสถานที่ ร้านอาหาร กิจกรรม พร้อมระบบสนทนาแบบ streaming, แผนที่, เสียงพูด และอื่นๆ
 
 [![React](https://img.shields.io/badge/React-18.3-blue.svg)](https://reactjs.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.0-green.svg)](https://flask.palletsprojects.com/)
@@ -9,375 +9,356 @@ NongPlatoo.Ai คือผู้ช่วยท่องเที่ยวสำ
 
 ---
 
-## ✨ ฟีเจอร์
+## ฟีเจอร์หลัก
 
-- 🤖 **GPT-4o Powered Chat** - แนะนำการท่องเที่ยวอัจฉริยะ
-- 🗺️ **Interactive Place Cards** - ข้อมูลสถานที่ท่องเที่ยวแบบละเอียด
-- 🌐 **Bilingual Support** - รองรับภาษาไทยและอังกฤษ
-- 🎨 **Modern UI** - ดีไซน์ทันสมัยด้วย React + shadcn/ui
-- 📱 **Responsive Design** - รองรับการใช้งานบนทุกอุปกรณ์
-- 🔥 **Real-time Chat** - ตอบโต้รวดเร็วทันใจ
-
----
-
-## 📋 สิ่งที่ต้องเตรียม (Prerequisites)
-
-ก่อนเริ่มต้น ตรวจสอบให้แน่ใจว่าคุณได้ติดตั้งสิ่งเหล่านี้แล้ว:
-
-- **Node.js** (v18 หรือสูงกว่า) - [ดาวน์โหลด](https://nodejs.org/)
-- **Python** (v3.11 หรือสูงกว่า) - [ดาวน์โหลด](https://www.python.org/)
-- **Git** - [ดาวน์โหลด](https://git-scm.com/)
-- **OpenAI API Key** - [รับคีย์ได้ที่นี่](https://platform.openai.com/api-keys)
+- **GPT-4o Streaming Chat** – สนทนาแบบ real-time พร้อมบุคลิก "น้องปลาทู"
+- **ค้นหาสถานที่อัจฉริยะ** – Hybrid search ผสม semantic matching (sentence-transformers) + PostgreSQL + pgvector
+- **แผนที่** – แสดงตำแหน่งสถานที่ด้วย Leaflet
+- **เสียงพูด (TTS/STT)** – Text-to-Speech (Edge TTS / gTTS / OpenAI) และ Speech-to-Text (Whisper)
+- **รองรับ 2 ภาษา** – ไทย และ อังกฤษ
+- **Responsive UI** – React + shadcn/ui + TailwindCSS ใช้งานได้ทุกอุปกรณ์
+- **Firebase Auth** – ระบบยืนยันตัวตนผู้ใช้
+- **Google Maps Fallback** – ดึงข้อมูลเพิ่มจาก Google Maps Places API เมื่อไม่พบในฐานข้อมูล
 
 ---
 
-## 🚀 การติดตั้ง (Installation)
+## สิ่งที่ต้องเตรียม
 
-### 1. โคลนโปรเจค (Clone the Repository)
+- **Node.js** v18+ – [ดาวน์โหลด](https://nodejs.org/)
+- **Python** v3.11+ – [ดาวน์โหลด](https://www.python.org/)
+- **Git** – [ดาวน์โหลด](https://git-scm.com/)
+- **OpenAI API Key** – [รับคีย์](https://platform.openai.com/api-keys)
+- **PostgreSQL** (production) หรือ SQLite (development)
+
+---
+
+## การติดตั้ง
+
+### 1. โคลนโปรเจค
 
 ```bash
 git clone https://github.com/TajimeRose/NongPlatoo.Ai.git
 cd NongPlatoo.Ai
 ```
 
-### 2. การตั้งค่า Backend
-
-#### ติดตั้ง Python Dependencies
+### 2. ตั้งค่า Backend
 
 ```bash
-# เข้าไปที่โฟลเดอร์ backend
 cd backend
 
-# สร้าง virtual environment (แนะนำ)
 python -m venv .venv
 
-# เปิดใช้งาน virtual environment
-# สำหรับ Windows:
+# Windows:
 .venv\Scripts\activate
-# สำหรับ macOS/Linux:
+# macOS/Linux:
 source .venv/bin/activate
 
-# ติดตั้ง dependencies
 pip install -r requirements.txt
 ```
 
-#### ตั้งค่า Environment Variables
+ตั้งค่า environment variables:
 
 ```bash
-# คัดลอกไฟล์ตัวอย่าง .env
 cp .env.example .env
+```
 
-# แก้ไขไฟล์ .env และใส่ API Key ของคุณ
-# จำเป็นต้องใส่:
-OPENAI_API_KEY=sk-your-openai-api-key-here
+แก้ไขไฟล์ `.env`:
 
-# ทางเลือก (Optional):
+```env
+OPENAI_API_KEY=sk-your-key-here
 FLASK_ENV=development
 PORT=5000
+DATABASE_URL=sqlite:///app.db
 ```
 
-### 3. การตั้งค่า Frontend
+### 3. ตั้งค่า Frontend
 
 ```bash
-# เข้าไปที่โฟลเดอร์ frontend
 cd ../frontend
-
-# ติดตั้ง dependencies
 npm install
-
-# คำสั่งนี้จะติดตั้งแพ็คเกจที่จำเป็นทั้งหมด รวมถึง:
-# - React & React Router
-# - TypeScript
-# - Vite (build tool)
-# - shadcn/ui components
-# - TailwindCSS
-# - และอื่นๆ...
 ```
 
 ---
 
-## 🎮 การใช้งาน (Usage)
+## การใช้งาน
 
-### โหมดพัฒนา (Development Mode)
+### Development Mode
 
-รันทั้ง frontend และ backend พร้อมกัน:
+ต้องเปิด 2 terminal พร้อมกัน:
 
-#### Terminal 1 - Backend Server
+**Terminal 1 – Backend** (จาก root ของโปรเจค)
 
 ```bash
-# จาก root ของโปรเจค
 python app.py
-
-# Server จะเริ่มทำงานที่ http://localhost:8000
+# Server ทำงานที่ http://localhost:8000
 ```
 
-#### Terminal 2 - Frontend Dev Server
+**Terminal 2 – Frontend**
 
 ```bash
-# จาก root ของโปรเจค
 cd frontend
 npm run dev
-
-# Frontend จะเริ่มทำงานที่ http://localhost:8080
+# Frontend ทำงานที่ http://localhost:8080
+# API requests จะ proxy ไปยัง http://localhost:8000
 ```
 
-เปิดเบราว์เซอร์แล้วไปที่: **http://localhost:8080**
+เปิดเบราว์เซอร์ไปที่ **http://localhost:8080**
 
-### การ Build สำหรับ Production
+### Build สำหรับ Production
 
 ```bash
-# Build frontend
 cd frontend
 npm run build
+# ไฟล์ output จะถูกสร้างที่ backend/static/ เพื่อให้ Flask serve โดยตรง
+```
 
-# ไฟล์ที่ Build เสร็จแล้วจะอยู่ที่ frontend/dist/
-# ไฟล์เหล่านี้จะถูกเรียกใช้โดย Flask backend ใน production
+หรือใช้คำสั่งรวม:
+
+```bash
+npm run deploy-flask
 ```
 
 ---
 
-## 🐳 การ Deploy ด้วย Docker
+## Deploy ด้วย Docker
 
-### ใช้ Docker Compose (แนะนำ)
+### Docker Compose (แนะนำ)
+
+จะสร้างทั้ง web app + PostgreSQL:
 
 ```bash
-# Build และ Run
 docker-compose up --build
-
-# เข้าใช้งานได้ที่ http://localhost:9000
+# เข้าใช้งานที่ http://localhost:8000
 ```
 
-### ใช้ Dockerfile อย่างเดียว
+### Dockerfile อย่างเดียว
 
 ```bash
-# Build image
 docker build -t nongplatoo-ai .
 
-# Run container
 docker run -p 9000:8000 \
   -e OPENAI_API_KEY=your-key-here \
   -e FLASK_ENV=production \
   -e PORT=8000 \
   nongplatoo-ai
 
-# เข้าใช้งานได้ที่ http://localhost:9000
+# เข้าใช้งานที่ http://localhost:9000
 ```
 
 ---
 
-## 📁 โครงสร้างโปรเจค (Project Structure)
+## โครงสร้างโปรเจค
 
 ```
 NongPlatoo.Ai/
-├── frontend/                  # React + TypeScript frontend
+├── app.py                        # Flask application หลัก (entry point)
+├── Dockerfile                    # Multi-stage build
+├── docker-compose.yml            # Web + PostgreSQL
+├── entrypoint.sh                 # Gunicorn startup script
+│
+├── frontend/                     # React + TypeScript
 │   ├── src/
-│   │   ├── components/       # React components
-│   │   │   ├── ui/          # shadcn/ui components
+│   │   ├── pages/
+│   │   │   ├── Index.tsx         # หน้าแรก
+│   │   │   ├── Chat.tsx          # หน้าแชท AI
+│   │   │   ├── Places.tsx        # รายการสถานที่
+│   │   │   ├── PlaceDetail.tsx   # รายละเอียดสถานที่
+│   │   │   ├── News.tsx          # ข่าวสาร
+│   │   │   └── Auth.tsx          # เข้าสู่ระบบ
+│   │   ├── components/
+│   │   │   ├── ui/               # shadcn/ui components
+│   │   │   ├── VoiceAIInterface.tsx
+│   │   │   ├── ChatMessage.tsx
+│   │   │   ├── PlaceCard.tsx
 │   │   │   ├── Navbar.tsx
-│   │   │   ├── CategoryCard.tsx
 │   │   │   └── ...
-│   │   ├── pages/           # Page components
-│   │   │   ├── Index.tsx    # Home page
-│   │   │   ├── Chat.tsx     # Chat interface
-│   │   │   └── Places.tsx   # Places listing
-│   │   ├── assets/          # Images and static files
-│   │   └── lib/             # Utilities
+│   │   └── lib/
 │   ├── package.json
 │   └── vite.config.ts
 │
-├── backend/                   # Flask backend
-│   ├── app.py               # Main Flask application
-│   ├── chat.py              # Chat logic
-│   ├── gpt_service.py       # OpenAI integration
-│   ├── db.py                # Database (optional)
-│   ├── requirements.txt     # Python dependencies
-│   └── .env.example         # Environment template
-│
-├── app.py                    # Root launcher
-├── Dockerfile               # Multi-stage Docker build
-├── docker-compose.yml       # Docker Compose config
-└── README.md               # ไฟล์นี้
+└── backend/
+    ├── chat.py                   # TravelChatbot – logic หลัก
+    ├── gpt_service.py            # GPTService – OpenAI integration
+    ├── db.py                     # SQLAlchemy models (Place, ChatLog, Feedback)
+    ├── simple_matcher.py         # Semantic matching (sentence-transformers)
+    ├── semantic_search.py        # Semantic search + embeddings
+    ├── conversation_memory.py    # จัดการประวัติสนทนา
+    ├── text_utils.py             # ตรวจจับภาษา, normalize text
+    ├── extensions.py             # Flask extensions init
+    ├── services/                 # Business logic services
+    │   ├── tts_service.py        # Text-to-Speech
+    │   ├── vad_service.py        # Voice Activity Detection
+    │   └── ...
+    ├── api/                      # API blueprints
+    ├── routes/                   # Route blueprints
+    ├── models/                   # ORM models
+    ├── configs/                  # Prompt configs (YAML)
+    ├── Data/                     # ข้อมูลสถานที่
+    ├── requirements.txt
+    └── .env.example
 ```
 
 ---
 
-## 🌐 API Endpoints
+## API Endpoints หลัก
 
-### ตรวจสอบสถานะ (Health Check)
-```bash
-GET /health
-```
+### ทั่วไป
 
-### สนทนากับ AI (Chat with AI)
-```bash
-POST /api/chat
-Content-Type: application/json
+| Method | Path | คำอธิบาย |
+|--------|------|----------|
+| GET | `/health` | ตรวจสอบสถานะ server |
+| GET/POST | `/api/visits` | นับจำนวนผู้เข้าชม |
 
-{
-  "message": "แนะนำที่เที่ยวสมุทรสงคราม",
-  "user_id": "user123"
-}
-```
+### แชท
 
-### ดึงข้อความ (Get Messages)
-```bash
-POST /api/messages
-Content-Type: application/json
+| Method | Path | คำอธิบาย |
+|--------|------|----------|
+| POST | `/api/messages/stream` | **สนทนาแบบ streaming (SSE)** – endpoint หลัก |
+| POST | `/api/chat` | สนทนาแบบ streaming |
+| POST | `/api/chat/sync` | สนทนาแบบไม่ streaming |
+| POST | `/api/messages` | ส่งข้อความ (ไม่ streaming) |
+| GET | `/api/messages` | ดึงประวัติสนทนา |
+| POST | `/api/messages/clear` | ล้างประวัติสนทนา |
+| GET | `/api/memory/stats` | สถิติ conversation memory |
 
-{
-  "text": "ร้านอาหารอัมพวา"
-}
-```
+### สถานที่
 
-**ตัวอย่าง Response:**
-```json
-{
-  "success": true,
-  "assistant": {
-    "role": "assistant",
-    "text": "สมุทรสงครามมีร้านอาหารที่น่าสนใจมากมาย...",
-    "structured_data": [
-      {
-        "place_name": "ตลาดน้ำอัมพวา",
-        "category": "market",
-        "description": "..."
-      }
-    ]
-  }
-}
-```
+| Method | Path | คำอธิบาย |
+|--------|------|----------|
+| GET | `/api/places` | ดึงสถานที่ทั้งหมด |
+| GET | `/api/places/<id>` | ดึงสถานที่ตาม ID |
+| GET | `/api/filters/districts` | รายชื่ออำเภอ |
+| GET | `/api/filters/categories` | รายชื่อหมวดหมู่ |
+
+### เสียง
+
+| Method | Path | คำอธิบาย |
+|--------|------|----------|
+| POST | `/api/tts` | Text-to-Speech (Edge TTS) |
+| POST | `/api/text-to-speech` | TTS (gTTS / Google Cloud / OpenAI) |
+| POST | `/api/speech-to-text` | Speech-to-Text (Whisper) |
+| POST | `/api/vad/detect` | Voice Activity Detection |
+
+### อื่นๆ
+
+| Method | Path | คำอธิบาย |
+|--------|------|----------|
+| POST | `/api/feedback` | ส่ง feedback |
+| GET | `/api/feedback/stats` | สถิติ feedback |
+| GET | `/api/image-proxy` | Proxy รูปจาก Google Maps |
 
 ---
 
-## 🔧 การตั้งค่า (Configuration)
-
-### Environment Variables
+## Environment Variables
 
 | ตัวแปร | จำเป็น | ค่าเริ่มต้น | คำอธิบาย |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | ✅ ใช่ | - | OpenAI API key สำหรับ GPT-4o |
-| `FLASK_ENV` | ❌ ไม่ | `development` | สภาพแวดล้อม Flask |
-| `PORT` | ❌ ไม่ | `5000` | พอร์ตของ Backend server |
-| `DATABASE_URL` | ❌ ไม่ | - | การเชื่อมต่อ PostgreSQL (ทางเลือก) |
+|--------|--------|------------|----------|
+| `OPENAI_API_KEY` | [x] ใช่ | - | OpenAI API key |
+| `FLASK_ENV` | [ ] ไม่ | `development` | `development` หรือ `production` |
+| `PORT` | [ ] ไม่ | `5000` (dev) / `8000` (prod) | พอร์ต server |
+| `DATABASE_URL` | [ ] ไม่ | `sqlite:///app.db` | Connection string (PostgreSQL ใน production) |
+| `GOOGLE_MAPS_API_KEY` | [ ] ไม่ | - | สำหรับ Google Maps Places API fallback |
+| `SECRET_KEY` | [ ] ไม่ | - | Flask secret key (JWT) |
 
-### การตั้งค่า Frontend
-
-แก้ไข `frontend/vite.config.ts` เพื่อเปลี่ยน:
-- Server port (default: 8080)
-- API proxy settings
-- Build options
+ดูตัวอย่างเต็มที่ `backend/.env.example` (dev) และ `.env.production.example` (prod)
 
 ---
 
-## 🛠️ เทคโนโลยีที่ใช้ (Technologies)
+## เทคโนโลยีที่ใช้
 
 ### Frontend
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool
-- **TailwindCSS** - Styling
-- **shadcn/ui** - Component library
-- **React Router** - Navigation
-- **Lucide Icons** - Icons
+
+| เทคโนโลยี | หน้าที่ |
+|-----------|--------|
+| React 18 + TypeScript | UI framework |
+| Vite + SWC | Build tool |
+| TailwindCSS + shadcn/ui | Styling + Components |
+| React Router 6 | Navigation |
+| TanStack React Query | Data fetching + caching |
+| Leaflet + React-Leaflet | แผนที่ |
+| Firebase | Authentication |
+| Recharts | กราฟ/แผนภูมิ |
+| Lucide Icons | ไอคอน |
 
 ### Backend
-- **Flask** - Web framework
-- **Python 3.11** - Programming language
-- **OpenAI API** - GPT-4o integration
-- **Gunicorn** - Production server
-- **SQLAlchemy** - Database ORM (optional)
+
+| เทคโนโลยี | หน้าที่ |
+|-----------|--------|
+| Flask + Gunicorn | Web framework + Production server |
+| OpenAI API (GPT-4o) | AI chat |
+| SQLAlchemy + PostgreSQL | ฐานข้อมูล |
+| pgvector | Vector search |
+| sentence-transformers | Semantic matching |
+| Edge TTS / gTTS / OpenAI TTS | Text-to-Speech |
+| OpenAI Whisper | Speech-to-Text |
+| Google Maps API | ค้นหาสถานที่เพิ่มเติม |
 
 ---
 
-## 🐛 การแก้ไขปัญหาเบื้องต้น (Troubleshooting)
+## Scripts
 
-### ปัญหา Frontend
+### Frontend
 
-**ปัญหา**: `Cannot find module '@/components/...'`
 ```bash
-# วิธีแก้: ตรวจสอบ path alias ใน tsconfig.json
-cd frontend
-# ตรวจสอบว่า tsconfig.json มี:
-# "paths": { "@/*": ["./src/*"] }
+npm run dev            # เริ่ม dev server (localhost:8080)
+npm run build          # Build production -> backend/static/
+npm run deploy-flask   # Build + deploy เข้า Flask
+npm run build:dev      # Build แบบ development
+npm run lint           # ESLint
+npm run preview        # Preview production build
 ```
 
-**ปัญหา**: `npm install` ล้มเหลว
+### Backend
+
 ```bash
-# วิธีแก้: ล้าง cache และติดตั้งใหม่
-rm -rf node_modules package-lock.json
-npm install
+python app.py          # เริ่ม Flask server (localhost:8000)
 ```
 
-### ปัญหา Backend
+---
 
-**ปัญหา**: `OPENAI_API_KEY not found`
+## แก้ไขปัญหาเบื้องต้น
+
+**`Cannot find module '@/components/...'`**
+ตรวจสอบว่า `frontend/tsconfig.json` มี `"paths": { "@/*": ["./src/*"] }`
+
+**`npm install` ล้มเหลว**
 ```bash
-# วิธีแก้: ตรวจสอบว่ามีไฟล์ .env และใส่ key แล้ว
-cd backend
-cat .env  # ควรแสดง OPENAI_API_KEY=sk-...
+rm -rf node_modules package-lock.json && npm install
 ```
 
-**ปัญหา**: `ModuleNotFoundError`
+**`OPENAI_API_KEY not found`**
+ตรวจสอบว่า `backend/.env` มี `OPENAI_API_KEY=sk-...`
+
+**`ModuleNotFoundError`**
 ```bash
-# วิธีแก้: ติดตั้ง dependencies ใหม่
 pip install -r requirements.txt
 ```
 
 ---
 
-## 📜 สคริปต์ที่มีให้ใช้ (Available Scripts)
+## Deploy
 
-### Frontend
+### Coolify
 
-```bash
-
-# เมื่อเช็คแก้ไขใน Frontend เรียบร้อย สามารถรันรันสคลิปนี้เเพื่ออัพเดทเข้า Flaaskได้เลย
-npm run deploy-flask
-
-npm run dev          # เริ่ม development server
-npm run build        # Build สำหรับ production
-npm run deploy-flask # เมื่อ npm run build เสร็จรันต่อเมื่ออัพเข้า Flask
-
-npm run build:dev    # Build สำหรับ development
-npm run lint         # รัน ESLint
-npm run preview      # ดูตัวอย่าง production build
-```
-
-### Backend
-
-```bash
-python app.py        # เริ่ม Flask server
-```
-
----
-
-## 🚢 การ Deploy
-
-### Deploy ไปยัง Coolify
-
-1. **ตั้งค่า Environment Variables** ใน Coolify Dashboard:
+1. ตั้งค่า Environment Variables ใน Dashboard:
    ```
    OPENAI_API_KEY=sk-xxxxx
    FLASK_ENV=production
-  PORT=8000
-  # ถ้าใช้ฐานข้อมูล Postgres
-  DATABASE_URL=postgresql+psycopg2://<user>:<password>@<host>:5432/<db>
+   PORT=8000
+   DATABASE_URL=postgresql+psycopg2://<user>:<password>@<host>:5432/<db>
    ```
 
-2. **ตั้งค่า Build Settings**:
-  - Build Pack: `Dockerfile`
-  - Service Port: `8000`
-  - Health Check Path: `/health`
+2. ตั้งค่า Build:
+   - Build Pack: `Dockerfile`
+   - Service Port: `8000`
+   - Health Check Path: `/health`
 
-3. **Deploy**: Push ขึ้น Git แล้ว Coolify จะ auto-deploy
+3. Push ขึ้น Git แล้ว Coolify จะ auto-deploy
 
-### Deploy ไปยัง Railway
+### Railway
 
 ```bash
-# ติดตั้ง Railway CLI
 npm install -g @railway/cli
-
-# Login และ deploy
 railway login
 railway init
 railway up
@@ -385,43 +366,38 @@ railway up
 
 ---
 
-## 🤝 การมีส่วนร่วม (Contributing)
+## การมีส่วนร่วม
 
 1. Fork repository
 2. สร้าง feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit การเปลี่ยนแปลง (`git commit -m 'Add some AmazingFeature'`)
-4. Push ไปยัง branch (`git push origin feature/AmazingFeature`)
+3. Commit (`git commit -m 'Add some AmazingFeature'`)
+4. Push (`git push origin feature/AmazingFeature`)
 5. เปิด Pull Request
 
 ---
 
-## 📄 ลิขสิทธิ์ (License)
+## ลิขสิทธิ์
 
-โปรเจคนี้อยู่ภายใต้ลิขสิทธิ์ MIT License - ดูรายละเอียดในไฟล์ LICENSE
-
----
-
-## 👥 ผู้จัดทำ (Authors)
-
-- **TajimeRose** - *ผู้เริ่มโปรเจค* - [GitHub](https://github.com/TajimeRose)
+MIT License – ดูรายละเอียดในไฟล์ LICENSE
 
 ---
 
-## 🙏 กิตติกรรมประกาศ (Acknowledgments)
+## ผู้จัดทำ
+
+- **TajimeRose** – [GitHub](https://github.com/TajimeRose)
+- **Blackoctopus1112** – [GitHub](https://github.com/Blackoctopus1112)
+
+---
+
+## กิตติกรรมประกาศ
 
 - OpenAI สำหรับ GPT-4o API
-- shadcn สำหรับ UI components สวยๆ
+- shadcn สำหรับ UI components
 - การท่องเที่ยวจังหวัดสมุทรสงคราม สำหรับข้อมูลท้องถิ่น
 
 ---
 
-## 📞 ช่องทางติดต่อ (Support)
+## ช่องทางติดต่อ
 
 - **แจ้งปัญหา**: [GitHub Issues](https://github.com/TajimeRose/NongPlatoo.Ai/issues)
 - **ช่วยเหลือเกี่ยวกับ OpenAI**: [OpenAI Help Center](https://help.openai.com/)
-
----
-
-สร้างด้วย ❤️ เพื่อการท่องเที่ยวจังหวัดสมุทรสงคราม
-
-**น้องปลาทู** (Nong Pla Tu) - เพื่อนเที่ยว AI แสนรู้ของคุณ! 🐟✨
